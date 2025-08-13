@@ -36,6 +36,9 @@ from models import Command
 # Import AI/LLM functionality
 from llm import parse_instruction_with_ai, LLMParseError
 
+# Import job runner functionality
+from jobs import start_job, get_job
+
 # Configure logging
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL.upper()),
@@ -590,3 +593,96 @@ async def get_config() -> Dict:
         "env_file_loaded": "Configuration loaded from environment variables",
         "note": "Sensitive values are masked for security"
     }
+
+
+# Job Management Endpoints
+class JobRequest(BaseModel):
+    """
+    Request model for starting a new job.
+    
+    Attributes:
+        command_id (Optional[int]): ID of a saved command to associate with this job
+    """
+    command_id: Optional[int] = None
+
+
+@app.post("/jobs")
+async def create_job(request: JobRequest) -> Dict:
+    """
+    Start a new async job for CAD processing.
+    
+    Creates a new job that simulates long-running CAD work. The job will
+    progress from 0 to 100% over time and can be monitored via the GET /jobs/{job_id} endpoint.
+    
+    Args:
+        request (JobRequest): Request containing optional command_id to associate
+    
+    Returns:
+        Dict: Job creation response with job_id, status, and progress
+        
+    Example Response:
+        {
+            "job_id": "550e8400-e29b-41d4-a716-446655440000",
+            "status": "queued",
+            "progress": 0
+        }
+    """
+    logger.info(f"Starting new job with command_id: {request.command_id}")
+    
+    # Prepare metadata for the job
+    meta = {"command_id": request.command_id} if request.command_id else {}
+    
+    # Start the job
+    job_id = start_job(meta=meta)
+    
+    logger.info(f"Created job {job_id} successfully")
+    
+    return {
+        "job_id": job_id,
+        "status": "queued",
+        "progress": 0
+    }
+
+
+@app.get("/jobs/{job_id}")
+async def get_job_status(job_id: str) -> Dict:
+    """
+    Get the current status of a job by its ID.
+    
+    Retrieves the current state of a running or completed job, including
+    progress percentage, status, and any error information.
+    
+    Args:
+        job_id (str): The unique job identifier
+        
+    Returns:
+        Dict: Current job state with status, progress, and metadata
+        
+    Raises:
+        HTTPException: 404 if job is not found
+        
+    Example Response:
+        {
+            "job_id": "550e8400-e29b-41d4-a716-446655440000",
+            "status": "running",
+            "progress": 45,
+            "error": null,
+            "created_at": "2025-08-13T19:00:00.000000",
+            "updated_at": "2025-08-13T19:00:15.000000"
+        }
+    """
+    logger.info(f"Retrieving status for job {job_id}")
+    
+    # Get job from the job runner
+    job_data = get_job(job_id)
+    
+    if job_data is None:
+        logger.warning(f"Job {job_id} not found")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job with ID '{job_id}' not found. Please check the job ID and try again."
+        )
+    
+    logger.info(f"Retrieved job {job_id} with status: {job_data['status']}, progress: {job_data['progress']}%")
+    
+    return job_data
