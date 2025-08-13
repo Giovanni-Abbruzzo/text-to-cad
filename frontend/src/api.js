@@ -9,3 +9,9 @@ export async function processInstruction(text) {
   if (!r.ok) throw new Error(`API error ${r.status}`);
   return r.json();
 }
+
+export async function fetchCommands(limit = 20) {
+  const r = await fetch(`${API_BASE}/commands?limit=${limit}`);
+  if (!r.ok) throw new Error(`API error ${r.status}`);
+  return r.json();
+}

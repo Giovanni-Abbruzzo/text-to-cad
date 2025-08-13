@@ -1,10 +1,24 @@
-import { useState } from 'react'
-import { processInstruction } from './api.js'
+import { useState, useEffect } from 'react'
+import { processInstruction, fetchCommands } from './api.js'
 
 function App() {
   const [instruction, setInstruction] = useState('')
   const [response, setResponse] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [history, setHistory] = useState([])
+
+  // Fetch command history on component mount
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        const historyData = await fetchCommands(20)
+        setHistory(historyData)
+      } catch (error) {
+        console.error('Failed to load history:', error)
+      }
+    }
+    loadHistory()
+  }, [])
 
   const handleSend = async () => {
     setLoading(true)
@@ -13,6 +27,14 @@ function App() {
     try {
       const data = await processInstruction(instruction)
       setResponse(data)
+      
+      // Re-fetch history after successful instruction processing
+      try {
+        const historyData = await fetchCommands(20)
+        setHistory(historyData)
+      } catch (historyError) {
+        console.error('Failed to refresh history:', historyError)
+      }
     } catch (error) {
       console.error('Error:', error)
       alert(`Failed to process instruction: ${error.message}`)
@@ -114,7 +136,7 @@ function App() {
       </button>
 
       {response && (
-        <div>
+        <div style={{ marginBottom: '40px' }}>
           <h3 style={{ 
             fontSize: '1.25rem',
             marginBottom: '16px',
@@ -140,6 +162,90 @@ function App() {
           </pre>
         </div>
       )}
+
+      {/* History Section */}
+      <div>
+        <h3 style={{ 
+          fontSize: '1.25rem',
+          marginBottom: '16px',
+          color: '#495057',
+          fontWeight: '500'
+        }}>
+          Command History:
+        </h3>
+        {history.length === 0 ? (
+          <p style={{ 
+            color: '#6c757d',
+            fontStyle: 'italic',
+            margin: '0'
+          }}>
+            No commands yet. Send your first instruction above!
+          </p>
+        ) : (
+          <div style={{
+            backgroundColor: '#f8f9fa',
+            border: '1px solid #e9ecef',
+            borderRadius: '8px',
+            padding: '16px',
+            maxHeight: '400px',
+            overflowY: 'auto'
+          }}>
+            {history.map((command) => (
+              <div
+                key={command.id}
+                style={{
+                  padding: '12px',
+                  marginBottom: '8px',
+                  backgroundColor: 'white',
+                  border: '1px solid #e9ecef',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  lineHeight: '1.4'
+                }}
+              >
+                <div style={{ 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  marginBottom: '8px',
+                  flexWrap: 'wrap',
+                  gap: '8px'
+                }}>
+                  <span style={{ 
+                    fontWeight: 'bold',
+                    color: '#007bff',
+                    fontSize: '12px'
+                  }}>
+                    #{command.id}
+                  </span>
+                  <span style={{ 
+                    backgroundColor: '#e7f3ff',
+                    color: '#0056b3',
+                    padding: '2px 8px',
+                    borderRadius: '12px',
+                    fontSize: '12px',
+                    fontWeight: '500'
+                  }}>
+                    {command.action}
+                  </span>
+                  <span style={{ 
+                    color: '#6c757d',
+                    fontSize: '12px',
+                    marginLeft: 'auto'
+                  }}>
+                    {new Date(command.created_at).toLocaleString()}
+                  </span>
+                </div>
+                <div style={{ 
+                  color: '#495057',
+                  fontWeight: '500'
+                }}>
+                  {command.prompt}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }
