@@ -17,14 +17,20 @@ Author: Text-to-CAD Team
 
 import re
 import logging
+import json
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
 from typing import Dict, Optional, Union
+from sqlalchemy.orm import Session
 
 # Import configuration
 from config import config
+
+# Import database components
+from db import engine, Base, SessionLocal, get_db
+from models import Command
 
 # Configure logging
 logging.basicConfig(
@@ -39,6 +45,19 @@ app = FastAPI(
     description="Backend service for converting natural language to CAD commands",
     version="0.1.0"
 )
+
+# Initialize database tables on startup
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize database tables on application startup.
+    
+    Creates all tables defined in models if they don't already exist.
+    This ensures the database schema is ready before handling requests.
+    """
+    logger.info("Initializing database tables...")
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database tables initialized successfully")
 
 # Configure CORS middleware using configuration
 # Origins are loaded from environment variables with sensible defaults
@@ -148,6 +167,27 @@ class InstructionResponse(BaseModel):
     """
     instruction: str
     parsed_parameters: ParsedParameters
+
+
+class CommandResponse(BaseModel):
+    """
+    Response model for saved Command records from database.
+    
+    Attributes:
+        id (int): Database ID of the saved command
+        prompt (str): Original natural language instruction
+        action (str): Parsed CAD action/command
+        parameters (Dict): Parsed parameters as dictionary (converted from JSON)
+        created_at (datetime): Timestamp when command was created
+    """
+    id: int
+    prompt: str
+    action: str
+    parameters: Dict
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True  # Enable ORM mode for SQLAlchemy models
 
 
 # Parsing Logic
@@ -262,42 +302,46 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
 
 
 @app.post("/process_instruction")
-async def process_instruction(request: InstructionRequest) -> InstructionResponse:
+async def process_instruction(request: InstructionRequest, db: Session = Depends(get_db)) -> CommandResponse:
     """
-    Process natural language CAD instruction and extract structured parameters.
+    Process natural language CAD instruction, extract parameters, and save to database.
     
-    This endpoint takes a natural language instruction and uses naive parsing
-    to extract CAD-relevant parameters like actions, shapes, and dimensions.
+    This endpoint takes a natural language instruction, uses naive parsing
+    to extract CAD-relevant parameters, saves the command to the database,
+    and returns the saved record with database ID.
     
     Validation:
     - Instructions must be at least 3 characters long and non-empty
     - Returns 422 with clear error message for invalid instructions
     
-    Response Format:
-    - Always returns the same JSON shape with consistent field structure
-    - Missing/undetected parameters are returned as null (not omitted)
-    - All dimension fields use *_mm suffix indicating millimeters as default unit
+    Database Persistence:
+    - Saves each processed command to the database for history tracking
+    - Parameters are serialized to JSON string for storage
+    - Returns the saved record with auto-generated ID and timestamp
     
     Args:
         request (InstructionRequest): Request containing the instruction text
+        db (Session): Database session dependency
         
     Returns:
-        InstructionResponse: Original instruction and parsed parameters
+        CommandResponse: Saved command record with ID, prompt, action, parameters, and timestamp
         
     Raises:
-        HTTPException: 422 if instruction validation fails
+        HTTPException: 422 if instruction validation fails, 500 for database errors
         
     Example:
         Input: {"instruction": "extrude a 5mm cylinder with 10mm diameter"}
         Output: {
-            "instruction": "extrude a 5mm cylinder with 10mm diameter",
-            "parsed_parameters": {
-                "action": "extrude",
+            "id": 1,
+            "prompt": "extrude a 5mm cylinder with 10mm diameter",
+            "action": "extrude",
+            "parameters": {
                 "shape": "cylinder",
                 "height_mm": 5.0,
                 "diameter_mm": 10.0,
                 "count": null
-            }
+            },
+            "created_at": "2024-01-15T10:30:45.123456"
         }
     """
     # Log incoming request
@@ -312,17 +356,46 @@ async def process_instruction(request: InstructionRequest) -> InstructionRespons
                    f"shape={parsed_params.shape}, height_mm={parsed_params.height_mm}, "
                    f"diameter_mm={parsed_params.diameter_mm}, count={parsed_params.count}")
         
-        # Create response with consistent JSON shape
-        response = InstructionResponse(
-            instruction=request.instruction,
-            parsed_parameters=parsed_params
+        # Serialize parsed parameters to JSON string for database storage
+        parameters_dict = {
+            "shape": parsed_params.shape,
+            "height_mm": parsed_params.height_mm,
+            "diameter_mm": parsed_params.diameter_mm,
+            "count": parsed_params.count
+        }
+        parameters_json = json.dumps(parameters_dict)
+        
+        # Create and save Command record to database
+        logger.info(f"Saving command to database: action='{parsed_params.action}'")
+        
+        db_command = Command(
+            prompt=request.instruction,
+            action=parsed_params.action,
+            parameters=parameters_json
         )
         
-        logger.info("Successfully processed instruction")
+        db.add(db_command)
+        db.commit()
+        db.refresh(db_command)  # Refresh to get auto-generated ID and timestamp
+        
+        logger.info(f"Command saved successfully with ID: {db_command.id}")
+        
+        # Create response with saved command data
+        response = CommandResponse(
+            id=db_command.id,
+            prompt=db_command.prompt,
+            action=db_command.action,
+            parameters=parameters_dict,  # Return as dict, not JSON string
+            created_at=db_command.created_at
+        )
+        
+        logger.info(f"Successfully processed and saved instruction with ID: {db_command.id}")
         return response
         
     except Exception as e:
         logger.error(f"Error processing instruction '{request.instruction}': {str(e)}")
+        # Rollback transaction on error
+        db.rollback()
         raise HTTPException(
             status_code=500,
             detail=f"Internal error processing instruction: {str(e)}"
