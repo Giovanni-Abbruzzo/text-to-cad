@@ -6,6 +6,7 @@ function App() {
   const [response, setResponse] = useState(null)
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState([])
+  const [useAI, setUseAI] = useState(false)
 
   // Fetch command history on component mount
   useEffect(() => {
@@ -25,7 +26,7 @@ function App() {
     setResponse(null)
 
     try {
-      const data = await processInstruction(instruction)
+      const data = await processInstruction(instruction, useAI)
       setResponse(data)
       
       // Re-fetch history after successful instruction processing
@@ -104,6 +105,39 @@ function App() {
         />
       </div>
 
+      {/* Use AI Toggle */}
+      <div style={{ marginBottom: '24px' }}>
+        <label style={{
+          display: 'flex',
+          alignItems: 'center',
+          fontSize: '1rem',
+          fontWeight: '500',
+          color: '#495057',
+          cursor: 'pointer'
+        }}>
+          <input
+            type="checkbox"
+            checked={useAI}
+            onChange={(e) => setUseAI(e.target.checked)}
+            style={{
+              marginRight: '8px',
+              width: '18px',
+              height: '18px',
+              cursor: 'pointer'
+            }}
+          />
+          Use AI
+          <span style={{
+            marginLeft: '8px',
+            fontSize: '0.875rem',
+            color: '#6c757d',
+            fontWeight: 'normal'
+          }}>
+            (requires OpenAI API key)
+          </span>
+        </label>
+      </div>
+
       <button
         onClick={handleSend}
         disabled={loading || !instruction.trim()}
@@ -145,21 +179,129 @@ function App() {
           }}>
             Response:
           </h3>
-          <pre
-            style={{
-              backgroundColor: '#000000',
-              padding: '20px',
-              borderRadius: '8px',
-              overflow: 'auto',
+          
+          {/* Source Display */}
+          <div style={{ marginBottom: '16px' }}>
+            <span style={{
+              fontSize: '1rem',
+              fontWeight: '500',
+              color: '#495057'
+            }}>
+              Source: 
+            </span>
+            <span style={{
+              backgroundColor: response.source === 'ai' ? '#d4edda' : '#fff3cd',
+              color: response.source === 'ai' ? '#155724' : '#856404',
+              padding: '4px 12px',
+              borderRadius: '16px',
+              fontSize: '0.875rem',
+              fontWeight: '500',
+              marginLeft: '8px'
+            }}>
+              {response.source === 'ai' ? '🤖 AI' : '📋 Rule-based'}
+            </span>
+          </div>
+
+          {/* Parsed Parameters Table */}
+          <div style={{ marginBottom: '20px' }}>
+            <h4 style={{
+              fontSize: '1rem',
+              marginBottom: '12px',
+              color: '#495057',
+              fontWeight: '500'
+            }}>
+              Parsed Parameters:
+            </h4>
+            <div style={{
+              backgroundColor: '#f8f9fa',
               border: '1px solid #e9ecef',
-              fontSize: '14px',
-              lineHeight: '1.4',
-              fontFamily: 'Monaco, Consolas, "Courier New", monospace',
-              maxHeight: '400px'
-            }}
-          >
-            {JSON.stringify(response, null, 2)}
-          </pre>
+              borderRadius: '8px',
+              overflow: 'hidden'
+            }}>
+              <table style={{
+                width: '100%',
+                borderCollapse: 'collapse',
+                fontSize: '14px'
+              }}>
+                <tbody>
+                  <tr style={{ backgroundColor: '#e9ecef' }}>
+                    <td style={{
+                      padding: '12px 16px',
+                      fontWeight: '600',
+                      color: '#495057',
+                      borderBottom: '1px solid #dee2e6'
+                    }}>
+                      Action
+                    </td>
+                    <td style={{
+                      padding: '12px 16px',
+                      color: '#495057',
+                      borderBottom: '1px solid #dee2e6'
+                    }}>
+                      {response.parsed_parameters?.action || 'N/A'}
+                    </td>
+                  </tr>
+                  {response.parsed_parameters?.parameters && Object.entries(response.parsed_parameters.parameters).map(([key, value]) => (
+                    <tr key={key}>
+                      <td style={{
+                        padding: '12px 16px',
+                        fontWeight: '500',
+                        color: '#6c757d',
+                        borderBottom: '1px solid #dee2e6',
+                        textTransform: 'capitalize'
+                      }}>
+                        {key.replace('_', ' ')}
+                      </td>
+                      <td style={{
+                        padding: '12px 16px',
+                        color: '#495057',
+                        borderBottom: '1px solid #dee2e6',
+                        fontFamily: value && typeof value === 'object' ? 'Monaco, Consolas, monospace' : 'inherit'
+                      }}>
+                        {value === null ? (
+                          <span style={{ color: '#6c757d', fontStyle: 'italic' }}>null</span>
+                        ) : typeof value === 'object' ? (
+                          JSON.stringify(value, null, 2)
+                        ) : (
+                          String(value)
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Raw JSON (collapsible) */}
+          <details style={{ marginTop: '16px' }}>
+            <summary style={{
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              color: '#6c757d',
+              fontWeight: '500',
+              marginBottom: '8px'
+            }}>
+              View Raw JSON
+            </summary>
+            <pre
+              style={{
+                backgroundColor: '#000000',
+                color: '#ffffff',
+                padding: '16px',
+                borderRadius: '6px',
+                overflow: 'auto',
+                border: '1px solid #e9ecef',
+                fontSize: '12px',
+                lineHeight: '1.4',
+                fontFamily: 'Monaco, Consolas, "Courier New", monospace',
+                maxHeight: '300px',
+                marginTop: '8px'
+              }}
+            >
+              {JSON.stringify(response, null, 2)}
+            </pre>
+          </details>
         </div>
       )}
 
