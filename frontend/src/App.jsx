@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { processInstruction } from './api.js'
 
 function App() {
-  const [instruction, setInstruction] = useState('Add 4 holes on the top face')
+  const [instruction, setInstruction] = useState('')
   const [response, setResponse] = useState(null)
   const [loading, setLoading] = useState(false)
 
@@ -65,6 +65,7 @@ function App() {
           type="text"
           value={instruction}
           onChange={(e) => setInstruction(e.target.value)}
+          placeholder="Extrude a 5mm tall cylinder with 10mm diameter" // type hint
           style={{
             width: '100%',
             padding: '12px 16px',
