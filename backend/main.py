@@ -22,7 +22,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 from sqlalchemy.orm import Session
 
 # Import configuration
@@ -190,6 +190,30 @@ class CommandResponse(BaseModel):
         from_attributes = True  # Enable ORM mode for SQLAlchemy models
 
 
+class CommandOut(BaseModel):
+    """
+    Output model for Command records in list responses.
+    
+    Used for GET /commands endpoint to return command history.
+    Same structure as CommandResponse but optimized for list operations.
+    
+    Attributes:
+        id (int): Database ID of the command
+        prompt (str): Original natural language instruction
+        action (str): Parsed CAD action/command
+        parameters (Dict): Parsed parameters as dictionary (converted from JSON)
+        created_at (datetime): Timestamp when command was created
+    """
+    id: int
+    prompt: str
+    action: str
+    parameters: Dict
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True  # Enable ORM mode for SQLAlchemy models
+
+
 # Parsing Logic
 def parse_cad_instruction(instruction: str) -> ParsedParameters:
     """
@@ -330,10 +354,10 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
         HTTPException: 422 if instruction validation fails, 500 for database errors
         
     Example:
-        Input: {"instruction": "extrude a 5mm cylinder with 10mm diameter"}
+        Input: {"instruction": "extrude a 5mm tall cylinder with 10mm diameter"}
         Output: {
             "id": 1,
-            "prompt": "extrude a 5mm cylinder with 10mm diameter",
+            "prompt": "extrude a 5mm tall cylinder with 10mm diameter",
             "action": "extrude",
             "parameters": {
                 "shape": "cylinder",
@@ -399,6 +423,111 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
         raise HTTPException(
             status_code=500,
             detail=f"Internal error processing instruction: {str(e)}"
+        )
+
+
+@app.get("/commands")
+async def get_commands(
+    limit: int = 20,
+    db: Session = Depends(get_db)
+) -> List[CommandOut]:
+    """
+    Retrieve command history in reverse chronological order.
+    
+    Returns a list of previously processed CAD commands, ordered by creation
+    time (most recent first). Useful for viewing command history, debugging,
+    and analyzing user interaction patterns.
+    
+    Query Parameters:
+        limit (int): Maximum number of commands to return.
+                    Default: 20, Maximum: 100
+                    Values above 100 are clamped to 100 for performance.
+    
+    Database Query:
+        - Orders by created_at DESC (newest first)
+        - Applies limit for pagination
+        - Parses JSON parameters back to dictionary format
+    
+    Args:
+        limit (int): Number of commands to retrieve (default 20, max 100)
+        db (Session): Database session dependency
+        
+    Returns:
+        List[CommandOut]: List of command records with parsed parameters
+        
+    Raises:
+        HTTPException: 500 for database errors
+        
+    Example Response:
+        [
+            {
+                "id": 3,
+                "prompt": "extrude a 1mm tall box that is 3mm wide",
+                "action": "extrude",
+                "parameters": {
+                    "shape": "block",
+                    "height_mm": 1.0,
+                    "diameter_mm": 3.0,
+                    "count": null
+                },
+                "created_at": "2025-08-13T16:27:41.123456"
+            },
+            {
+                "id": 2,
+                "prompt": "extrude a 1mm tall square with 3mm length",
+                "action": "extrude",
+                "parameters": {
+                    "shape": null,
+                    "height_mm": 1.0,
+                    "diameter_mm": null,
+                    "count": null
+                },
+                "created_at": "2025-08-13T16:25:09.123456"
+            }
+        ]
+    """
+    # Clamp limit to maximum of 100 for performance
+    if limit > 100:
+        limit = 100
+        logger.warning(f"Limit clamped to maximum of 100")
+    
+    # Log the request
+    logger.info(f"Retrieving {limit} commands in reverse chronological order")
+    
+    try:
+        # Query commands ordered by created_at DESC (newest first)
+        db_commands = db.query(Command).order_by(Command.created_at.desc()).limit(limit).all()
+        
+        logger.info(f"Retrieved {len(db_commands)} commands from database")
+        
+        # Convert to response models, parsing JSON parameters back to dict
+        commands_out = []
+        for db_command in db_commands:
+            try:
+                # Parse JSON parameters back to dictionary
+                parameters_dict = json.loads(db_command.parameters) if db_command.parameters else {}
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse parameters for command {db_command.id}: {e}")
+                # Fallback to empty dict if JSON parsing fails
+                parameters_dict = {}
+            
+            command_out = CommandOut(
+                id=db_command.id,
+                prompt=db_command.prompt,
+                action=db_command.action,
+                parameters=parameters_dict,
+                created_at=db_command.created_at
+            )
+            commands_out.append(command_out)
+        
+        logger.info(f"Successfully processed {len(commands_out)} commands for response")
+        return commands_out
+        
+    except Exception as e:
+        logger.error(f"Error retrieving commands: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error retrieving commands: {str(e)}"
         )
 
 
