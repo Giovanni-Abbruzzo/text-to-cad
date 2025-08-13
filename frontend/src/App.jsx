@@ -89,6 +89,13 @@ function App() {
           clearInterval(pollingIntervalRef.current)
           pollingIntervalRef.current = null
           
+          // Log completion details
+          if (jobStatus.status === 'failed') {
+            console.error(`Job ${jobId} failed with error: ${jobStatus.error}`)
+          } else {
+            console.log(`Job ${jobId} completed successfully`)
+          }
+          
           // Re-fetch history after job completion
           try {
             const historyData = await fetchCommands(20)
@@ -205,33 +212,35 @@ function App() {
 
       <button
         onClick={handleSend}
-        disabled={loading || !instruction.trim()}
+        disabled={loading || !instruction.trim() || (currentJob && currentJob.status === 'running')}
         style={{
           padding: '12px 24px',
           fontSize: '16px',
           fontWeight: '500',
-          backgroundColor: loading ? '#6c757d' : '#007bff',
+          backgroundColor: (loading || (currentJob && currentJob.status === 'running')) ? '#6c757d' : '#007bff',
           color: 'white',
           border: 'none',
           borderRadius: '8px',
-          cursor: loading ? 'not-allowed' : 'pointer',
+          cursor: (loading || (currentJob && currentJob.status === 'running')) ? 'not-allowed' : 'pointer',
           marginBottom: '32px',
           fontFamily: 'inherit',
           transition: 'background-color 0.2s ease',
           minWidth: '120px'
         }}
         onMouseOver={(e) => {
-          if (!loading && instruction.trim()) {
+          if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
             e.target.style.backgroundColor = '#0056b3'
           }
         }}
         onMouseOut={(e) => {
-          if (!loading && instruction.trim()) {
+          if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
             e.target.style.backgroundColor = '#007bff'
           }
         }}
       >
-        {loading ? 'Processing...' : 'Send'}
+        {loading ? 'Processing...' : 
+         (currentJob && currentJob.status === 'running') ? 'Job Running...' : 
+         'Send'}
       </button>
 
       {/* Job Progress Section */}
@@ -243,14 +252,48 @@ function App() {
           border: '1px solid #e9ecef',
           borderRadius: '8px'
         }}>
-          <h3 style={{
-            fontSize: '1.1rem',
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
             marginBottom: '12px',
-            color: '#495057',
-            fontWeight: '500'
+            gap: '12px'
           }}>
-            Job Status
-          </h3>
+            <h3 style={{
+              fontSize: '1.1rem',
+              margin: '0',
+              color: '#495057',
+              fontWeight: '500'
+            }}>
+              Job Status
+            </h3>
+            
+            {/* Status Badge */}
+            <span style={{
+              padding: '4px 12px',
+              borderRadius: '16px',
+              fontSize: '0.8rem',
+              fontWeight: '600',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+              backgroundColor: 
+                currentJob.status === 'succeeded' ? '#d4edda' :
+                currentJob.status === 'failed' ? '#f8d7da' :
+                currentJob.status === 'running' ? '#d1ecf1' : '#e2e3e5',
+              color:
+                currentJob.status === 'succeeded' ? '#155724' :
+                currentJob.status === 'failed' ? '#721c24' :
+                currentJob.status === 'running' ? '#0c5460' : '#495057',
+              border: `1px solid ${
+                currentJob.status === 'succeeded' ? '#c3e6cb' :
+                currentJob.status === 'failed' ? '#f5c6cb' :
+                currentJob.status === 'running' ? '#bee5eb' : '#d6d8db'
+              }`
+            }}>
+              {currentJob.status === 'succeeded' ? '✅ Succeeded' :
+               currentJob.status === 'failed' ? '❌ Failed' :
+               currentJob.status === 'running' ? '🔄 Running' : '⏳ Queued'}
+            </span>
+          </div>
           
           <div style={{ marginBottom: '12px' }}>
             <div style={{
@@ -319,6 +362,33 @@ function App() {
             {jobPolling && (
               <div style={{ color: '#007bff', fontWeight: '500' }}>
                 🔄 Polling for updates...
+              </div>
+            )}
+            
+            {/* Error Message Display */}
+            {currentJob.status === 'failed' && currentJob.error && (
+              <div style={{
+                marginTop: '12px',
+                padding: '12px',
+                backgroundColor: '#f8d7da',
+                border: '1px solid #f5c6cb',
+                borderRadius: '6px',
+                color: '#721c24'
+              }}>
+                <div style={{
+                  fontWeight: '600',
+                  marginBottom: '4px',
+                  fontSize: '0.9rem'
+                }}>
+                  ❌ Job Failed
+                </div>
+                <div style={{
+                  fontSize: '0.85rem',
+                  fontFamily: 'Monaco, Consolas, monospace',
+                  wordBreak: 'break-word'
+                }}>
+                  {currentJob.error}
+                </div>
               </div>
             )}
           </div>
