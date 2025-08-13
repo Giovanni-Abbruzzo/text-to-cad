@@ -239,10 +239,167 @@ The frontend will be available at `http://localhost:5173`
 - **Environment Variables**: Make sure `frontend/.env` exists with correct `VITE_API_BASE` value
 - **API Connection**: Verify backend is running at the URL specified in `VITE_API_BASE`
 
-### Next Sprint Features
+## AI/LLM Integration (Sprint 4)
 
-The next development sprint will focus on:
-- **Persistence**: Database integration for instruction history
-- **History API**: Endpoints to retrieve and manage past instructions
-- **Enhanced Parsing**: More sophisticated NLP techniques
-- **LLM Integration**: Optional AI-powered instruction understanding
+The Text-to-CAD system now supports **optional AI-powered instruction parsing** using OpenAI's GPT models. When enabled, the system can provide more sophisticated natural language understanding while maintaining a reliable fallback to rule-based parsing.
+
+### Setup & Configuration
+
+#### 1. Create Environment File
+```bash
+cd backend
+cp .env.example .env
+```
+
+#### 2. Configure OpenAI API Key
+Edit `backend/.env` and add your OpenAI API key:
+```ini
+# AI/LLM Configuration
+# OpenAI configuration (optional; app falls back to rules if missing)
+# The backend will only use AI when use_ai=true is sent by the client and a valid key is present
+OPENAI_API_KEY=sk-your-actual-api-key-here
+OPENAI_MODEL=gpt-4o
+OPENAI_TIMEOUT_S=20
+```
+
+#### 3. Get Your OpenAI API Key
+1. Visit [OpenAI's API platform](https://platform.openai.com/api-keys)
+2. Sign in to your account
+3. Click "Create new secret key"
+4. Copy the key (starts with `sk-`)
+
+### Usage
+
+#### Backend API
+The `/process_instruction` endpoint now accepts an optional `use_ai` parameter:
+
+```bash
+# Use AI parsing
+curl -X POST "http://localhost:8000/process_instruction" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "create 4 holes in a circular pattern", "use_ai": true}'
+
+# Use rule-based parsing (default)
+curl -X POST "http://localhost:8000/process_instruction" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "create 4 holes in a circular pattern", "use_ai": false}'
+```
+
+#### Frontend UI
+The React frontend now includes:
+- **"Use AI" checkbox** - Toggle between AI and rule-based parsing
+- **Source indicator** - Shows whether AI or rules were used
+- **Structured parameter display** - Clean table format instead of raw JSON
+- **Fallback handling** - Automatically falls back to rules if AI fails
+
+### AI Response Format
+
+The AI uses a structured JSON schema to ensure consistent output:
+
+```json
+{
+  "action": "create_hole" | "extrude" | "fillet" | "pattern" | "create_feature",
+  "parameters": {
+    "count": number | null,
+    "diameter_mm": number | null,
+    "height_mm": number | null,
+    "shape": string | null,
+    "pattern": {
+      "type": "circular" | "linear" | null,
+      "count": number | null,
+      "angle_deg": number | null
+    } | null
+  }
+}
+```
+
+#### AI Prompt Instructions
+The AI receives this core instruction:
+> "You are a CAD command parser. Convert natural language instructions into JSON commands. Return ONLY valid JSON matching the exact schema. Use null for unspecified parameters. Extract numeric values when mentioned. Choose the most appropriate action type."
+
+### Fallback Behavior
+
+The system provides **robust fallback** to ensure reliability:
+
+1. **No API Key**: If `OPENAI_API_KEY` is not configured, uses rule-based parsing
+2. **AI Request Failed**: If `use_ai=true` but API call fails, falls back to rules
+3. **Invalid Response**: If AI returns malformed JSON, falls back to rules
+4. **Network Issues**: If OpenAI API is unreachable, falls back to rules
+
+**Response Format** (both AI and rule-based):
+```json
+{
+  "instruction": "create a 5mm hole",
+  "source": "ai" | "rule",
+  "parsed_parameters": {
+    "action": "create_hole",
+    "parameters": {
+      "diameter_mm": 5,
+      "count": null,
+      "height_mm": null,
+      "shape": null,
+      "pattern": null
+    }
+  }
+}
+```
+
+### Cost & Rate Limits
+
+#### OpenAI API Costs
+- **gpt-4o**: ~$2.50 per 1M input tokens, ~$10.00 per 1M output tokens
+- **gpt-4o-mini**: ~$0.15 per 1M input tokens, ~$0.60 per 1M output tokens
+- Typical instruction: ~100-200 tokens total cost
+
+#### Rate Limits
+- **Free tier**: 3 requests per minute
+- **Paid tier**: 500+ requests per minute (varies by usage tier)
+- **Timeout**: 20 seconds (configurable via `OPENAI_TIMEOUT_S`)
+
+#### Cost Management Tips
+- Use `gpt-4o-mini` for development (much cheaper)
+- Enable AI only when needed via the frontend toggle
+- Rule-based parsing is always free and fast
+
+### Security & Best Practices
+
+#### ⚠️ API Key Security
+- **Never commit** API keys to version control
+- **Use environment variables** (`.env` file is in `.gitignore`)
+- **Regenerate keys** if compromised
+- **Monitor usage** on OpenAI dashboard
+
+#### Production Considerations
+- Set up **API key rotation**
+- Monitor **usage and costs**
+- Implement **rate limiting** if needed
+- Consider **caching** for repeated instructions
+
+### Troubleshooting
+
+#### Common Issues
+
+**"OpenAI API key not configured"**
+- Ensure `.env` file exists in `backend/` directory
+- Verify `OPENAI_API_KEY` is set correctly
+- Restart the backend server after adding the key
+
+**"AI parsing failed, falling back to rules"**
+- Check OpenAI API key validity
+- Verify internet connection
+- Check OpenAI service status
+- Review rate limits on your account
+
+**Frontend shows "Rule-based" even with AI enabled**
+- Backend may not have API key configured
+- Check browser console for errors
+- Verify backend logs for AI parsing attempts
+
+#### Debugging
+Enable detailed logging by checking backend console output:
+```
+INFO - Processing instruction: 'create a hole' (use_ai=True)
+INFO - Attempting AI parsing with OpenAI
+INFO - AI parsing successful: {...}
+INFO - Command saved successfully with ID: 1 (source: ai)
+```
