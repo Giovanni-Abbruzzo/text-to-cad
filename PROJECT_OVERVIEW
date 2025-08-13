@@ -1,0 +1,27 @@
+# Project Overview — Text‑to‑CAD
+
+## Goal
+Turn natural language into **parametric CAD** (STL/STEP) through a chat interface. Provide a plugin‑style UX reminiscent of Copilot/Windsurf inside CAD tools.
+
+## MVP (interview demo)
+1. User enters: *"Create a 50x30x10 mm block with a 8 mm center hole"*.
+2. System parses to a tiny DSL.
+3. Generator outputs a valid STL (and later STEP).
+4. User downloads file; UI shows parameters + trace.
+
+## Non‑Goals (MVP)
+- Full constraint solver
+- Complex feature tree editing
+- Full SolidWorks/Fusion SDK integration (mocked first)
+
+## Constraints / Defaults
+- Units default to mm; support in, cm.
+- Shapes: `cube` (w,h,d) and `cylinder` (r, h).
+- Deterministic parse; safe fallbacks.
+
+## Repo Tour
+- `frontend/` — React chat UI
+- `backend/` — FastAPI + parsing + simple STL generator
+- `ai_model/` — prompt & DSL notes
+- `docs/` — architecture, roadmap, integration notes
+- `docker/` — container builds; `docker-compose.yml`
