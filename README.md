@@ -403,3 +403,224 @@ INFO - Attempting AI parsing with OpenAI
 INFO - AI parsing successful: {...}
 INFO - Command saved successfully with ID: 1 (source: ai)
 ```
+
+## Telemetry & Job Simulation (Sprint 5)
+
+The Text-to-CAD system now includes **simulated job execution** with real-time progress tracking to demonstrate how long-running CAD operations would work in production. This telemetry system provides a foundation for future integration with actual CAD software like SolidWorks and Fusion360.
+
+### Job Runner Architecture
+
+The system uses an **in-memory async job runner** that simulates CAD work:
+
+- **In-Memory Storage**: Jobs are stored in a module-level dictionary (`JOBS`) for fast access
+- **Async Execution**: Uses `asyncio.create_task()` to run jobs concurrently without blocking the API
+- **Progress Simulation**: Jobs progress from 0-100% in realistic increments (0.15s per step)
+- **Status Lifecycle**: `queued` → `running` → `succeeded`/`failed`
+- **Error Handling**: Comprehensive exception catching with detailed error messages
+
+⚠️ **Important Limitations:**
+- **Single Instance Only**: In-memory storage is not suitable for multi-instance production deployments
+- **No Persistence**: Jobs are lost on server restart
+- **Demo Purpose**: This is a placeholder for real CAD execution steps
+
+### Job Management Endpoints
+
+#### POST /jobs
+Start a new async job for CAD processing simulation.
+
+**Request Body (Optional):**
+```json
+{
+  "command_id": 123
+}
+```
+
+**Example Request:**
+```bash
+# Start job without command association
+curl -X POST "http://localhost:8000/jobs" \
+     -H "Content-Type: application/json" \
+     -d '{}'
+
+# Start job with command association
+curl -X POST "http://localhost:8000/jobs" \
+     -H "Content-Type: application/json" \
+     -d '{"command_id": 123}'
+```
+
+**Response:**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "queued",
+  "progress": 0
+}
+```
+
+#### GET /jobs/{job_id}
+Get the current status of a job by its unique ID.
+
+**Example Request:**
+```bash
+curl "http://localhost:8000/jobs/550e8400-e29b-41d4-a716-446655440000"
+```
+
+**Response (Running Job):**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "running",
+  "progress": 45,
+  "error": null,
+  "created_at": "2025-08-13T19:00:00.000000",
+  "updated_at": "2025-08-13T19:00:15.000000"
+}
+```
+
+**Response (Completed Job):**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "succeeded",
+  "progress": 100,
+  "error": null,
+  "created_at": "2025-08-13T19:00:00.000000",
+  "updated_at": "2025-08-13T19:00:18.000000"
+}
+```
+
+**Response (Failed Job):**
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "failed",
+  "progress": 67,
+  "error": "Simulation error: Invalid parameter",
+  "created_at": "2025-08-13T19:00:00.000000",
+  "updated_at": "2025-08-13T19:00:12.000000"
+}
+```
+
+**404 Response (Job Not Found):**
+```json
+{
+  "detail": "Job with ID '550e8400-e29b-41d4-a716-446655440000' not found. Please check the job ID and try again."
+}
+```
+
+### Frontend Job Integration
+
+The React frontend automatically integrates job execution with the instruction processing workflow:
+
+#### Automatic Job Triggering
+- **After Instruction Processing**: Jobs start automatically after successful `/process_instruction` calls
+- **No Manual Intervention**: Users don't need to manually start jobs
+- **Seamless UX**: Job progress appears immediately below the instruction form
+
+#### Real-Time Progress Bar
+- **Live Updates**: Progress bar updates every 600ms via polling
+- **Visual Status**: Color-coded status indicators (blue=running, green=success, red=failed)
+- **Progress Percentage**: Shows exact completion percentage (0-100%)
+- **Status Text**: Displays current job status with timestamps
+
+#### Polling & Cleanup
+- **Automatic Polling**: Frontend polls job status until completion
+- **Smart Cleanup**: Intervals are cleared when jobs finish or component unmounts
+- **History Refresh**: Command history automatically refreshes after job completion
+- **Error Recovery**: Graceful handling of polling errors and job failures
+
+#### UI Components
+
+**Job Status Display:**
+```
+Job Status
+Status: running    45%
+████████████░░░░░░░░░░░░░░░░
+
+Job ID: 550e8400-e29b-41d4-a716-446655440000
+Started: 8/13/2025, 7:00:00 PM
+🔄 Polling for updates...
+```
+
+### API Integration Examples
+
+#### Frontend API Helpers
+The frontend includes comprehensive job management functions:
+
+```javascript
+import { startJob, fetchJob, pollJobUntilComplete } from './api.js'
+
+// Start a job
+const job = await startJob(commandId) // commandId optional
+
+// Check job status
+const status = await fetchJob(jobId)
+
+// Poll until completion with progress callback
+const finalJob = await pollJobUntilComplete(jobId, (job) => {
+  console.log(`Progress: ${job.progress}%`)
+})
+```
+
+#### Backend Job Runner
+The backend provides a simple but powerful job management API:
+
+```python
+from jobs import start_job, get_job
+
+# Start a job
+job_id = start_job(meta={"command_id": 123})
+
+# Check job status
+job_status = get_job(job_id)  # Returns dict or None
+```
+
+### Future CAD Integration
+
+This telemetry system is designed as a **direct replacement foundation** for real CAD operations:
+
+#### Planned Integration Points
+- **SolidWorks API**: Replace simulation with actual SolidWorks macro execution
+- **Fusion360 API**: Integrate with Fusion360's Python API for real modeling
+- **Progress Tracking**: Map real CAD operation progress to the existing progress system
+- **Error Handling**: Capture actual CAD errors and surface them through the existing error system
+
+#### Migration Path
+1. **Keep API Contract**: All endpoints (`POST /jobs`, `GET /jobs/{id}`) remain unchanged
+2. **Replace Simulation**: Swap `_run_job()` simulation logic with real CAD calls
+3. **Maintain Progress**: Update progress based on actual CAD operation stages
+4. **Preserve UI**: Frontend progress bars and polling work unchanged
+
+#### Production Considerations
+- **Persistent Storage**: Replace in-memory storage with database persistence
+- **Multi-Instance**: Add Redis or database-backed job queue for scalability
+- **Monitoring**: Add comprehensive logging and monitoring for CAD operations
+- **Timeouts**: Implement appropriate timeouts for long-running CAD operations
+
+### Troubleshooting
+
+#### Common Issues
+
+**Job Not Starting**
+- Check backend logs for job creation errors
+- Verify `/process_instruction` completed successfully
+- Ensure backend server is running and accessible
+
+**Progress Bar Not Updating**
+- Check browser console for polling errors
+- Verify job ID is valid via direct API call
+- Check network connectivity to backend
+
+**Jobs Disappearing**
+- Jobs are stored in memory and lost on server restart
+- This is expected behavior for the demo system
+- Production systems will use persistent storage
+
+#### Debugging
+Monitor job execution via backend logs:
+```
+INFO - Starting job for processed instruction...
+INFO - Started job c821c37e-89b8-4610-bae4-43423 with meta: {}
+INFO - Job c821c37e-89b8-4610-bae4-43423 started running
+INFO - Job c821c37e-89b8-4610-bae4-43423 completed successfully
+```
