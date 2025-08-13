@@ -10,6 +10,7 @@ Currently implements:
 - Health check endpoint for service monitoring
 - CORS configuration for frontend integration
 - Natural language instruction processing with naive parsing
+- Configuration management with python-dotenv
 
 Author: Text-to-CAD Team
 """
@@ -20,6 +21,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, Optional, Union
 
+# Import configuration
+from config import config
+
 # Initialize FastAPI application
 app = FastAPI(
     title="Text-to-CAD Backend API",
@@ -27,14 +31,11 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# Configure CORS middleware
-# Allow requests from frontend (localhost:5173) and wildcard for development
+# Configure CORS middleware using configuration
+# Origins are loaded from environment variables with sensible defaults
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",  # Frontend development server
-        "*"  # Wildcard for development - should be restricted in production
-    ],
+    allow_origins=config.CORS_ORIGINS,  # Configurable CORS origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -66,7 +67,8 @@ async def root() -> Dict[str, str]:
         "version": "0.1.0",
         "health": "/health",
         "endpoints": {
-            "process_instruction": "/process_instruction"
+            "process_instruction": "/process_instruction",
+            "config": "/config"
         }
     }
 
@@ -254,3 +256,22 @@ async def process_instruction(request: InstructionRequest) -> InstructionRespons
         instruction=request.instruction,
         parsed_parameters=parsed_params
     )
+
+
+@app.get("/config")
+async def get_config() -> Dict:
+    """
+    Get current configuration information (excluding sensitive data).
+    
+    This endpoint provides visibility into the current configuration
+    for debugging and development purposes. Sensitive information
+    like API keys are masked or excluded.
+    
+    Returns:
+        Dict: Configuration information safe for display
+    """
+    return {
+        "config": config.get_config_info(),
+        "env_file_loaded": "Configuration loaded from environment variables",
+        "note": "Sensitive values are masked for security"
+    }
