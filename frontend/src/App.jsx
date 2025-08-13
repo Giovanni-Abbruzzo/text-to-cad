@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { processInstruction } from './api.js'
 
 function App() {
   const [instruction, setInstruction] = useState('Add 4 holes on the top face')
@@ -9,25 +10,8 @@ function App() {
     setLoading(true)
     setResponse(null)
 
-    // Debug: Log the environment variable
-    console.log('VITE_API_BASE:', import.meta.env.VITE_API_BASE)
-    const apiBase = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
-    console.log('Using API base:', apiBase)
-
     try {
-      const res = await fetch(`${apiBase}/process_instruction`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ instruction }),
-      })
-
-      if (!res.ok) {
-        throw new Error(`HTTP error! status: ${res.status}`)
-      }
-
-      const data = await res.json()
+      const data = await processInstruction(instruction)
       setResponse(data)
     } catch (error) {
       console.error('Error:', error)
