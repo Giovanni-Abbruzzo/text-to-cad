@@ -16,13 +16,22 @@ Author: Text-to-CAD Team
 """
 
 import re
-from fastapi import FastAPI
+import logging
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, validator
 from typing import Dict, Optional, Union
 
 # Import configuration
 from config import config
+
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL.upper()),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("text-to-cad-backend")
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -80,20 +89,47 @@ class InstructionRequest(BaseModel):
     
     Attributes:
         instruction (str): Natural language instruction for CAD operation
+                          Must be at least 3 characters long and non-empty
     """
     instruction: str
+    
+    @validator('instruction')
+    def validate_instruction(cls, v):
+        """
+        Validate that instruction is not blank or too short.
+        
+        Args:
+            v (str): The instruction string to validate
+            
+        Returns:
+            str: The validated instruction
+            
+        Raises:
+            ValueError: If instruction is blank, too short, or only whitespace
+        """
+        if not v or not v.strip():
+            raise ValueError("Instruction cannot be blank or empty")
+        
+        if len(v.strip()) < 3:
+            raise ValueError("Instruction must be at least 3 characters long")
+            
+        return v.strip()
 
 
 class ParsedParameters(BaseModel):
     """
     Parsed parameters extracted from natural language instruction.
     
+    All dimension fields use *_mm suffix to indicate millimeters as the default unit.
+    This is documented here as the standard: all numeric dimensions are in millimeters
+    unless explicitly specified otherwise in the instruction.
+    
     Attributes:
         action (str): The CAD action to perform (extrude, create_hole, fillet, pattern, create_feature)
-        shape (Optional[str]): Shape type if applicable (cylinder, block, etc.)
-        height_mm (Optional[float]): Height dimension in millimeters
-        diameter_mm (Optional[float]): Diameter dimension in millimeters
-        count (Optional[int]): Count for patterns or arrays
+        shape (Optional[str]): Shape type if applicable (cylinder, block, sphere, etc.) - null if not detected
+        height_mm (Optional[float]): Height dimension in millimeters - null if not detected
+        diameter_mm (Optional[float]): Diameter dimension in millimeters - null if not detected
+        count (Optional[int]): Count for patterns or arrays - null if not detected
     """
     action: str
     shape: Optional[str] = None
@@ -160,6 +196,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     
     # Dimension extraction using regex patterns
     # Pattern: number followed by optional unit (mm, millimeter, etc.)
+    # NOTE: All dimensions are stored with *_mm suffix to indicate millimeters as default unit
+    # This is our standard convention - dimensions are always in millimeters
     
     # Height extraction (height, tall, length, depth)
     height_mm = None
@@ -212,11 +250,13 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
             except (ValueError, IndexError):
                 continue
     
+    # Always return consistent structure with all fields present
+    # Missing/undetected values are explicitly set to None for consistent JSON shape
     return ParsedParameters(
         action=action,
         shape=shape,
-        height_mm=height_mm,
-        diameter_mm=diameter_mm,
+        height_mm=height_mm,  # Always in millimeters (documented by *_mm suffix)
+        diameter_mm=diameter_mm,  # Always in millimeters (documented by *_mm suffix)
         count=count
     )
 
@@ -229,11 +269,23 @@ async def process_instruction(request: InstructionRequest) -> InstructionRespons
     This endpoint takes a natural language instruction and uses naive parsing
     to extract CAD-relevant parameters like actions, shapes, and dimensions.
     
+    Validation:
+    - Instructions must be at least 3 characters long and non-empty
+    - Returns 422 with clear error message for invalid instructions
+    
+    Response Format:
+    - Always returns the same JSON shape with consistent field structure
+    - Missing/undetected parameters are returned as null (not omitted)
+    - All dimension fields use *_mm suffix indicating millimeters as default unit
+    
     Args:
         request (InstructionRequest): Request containing the instruction text
         
     Returns:
         InstructionResponse: Original instruction and parsed parameters
+        
+    Raises:
+        HTTPException: 422 if instruction validation fails
         
     Example:
         Input: {"instruction": "extrude a 5mm cylinder with 10mm diameter"}
@@ -248,14 +300,33 @@ async def process_instruction(request: InstructionRequest) -> InstructionRespons
             }
         }
     """
-    # Parse the instruction using our naive parsing logic
-    parsed_params = parse_cad_instruction(request.instruction)
+    # Log incoming request
+    logger.info(f"Processing instruction: '{request.instruction}'")
     
-    # Return structured response
-    return InstructionResponse(
-        instruction=request.instruction,
-        parsed_parameters=parsed_params
-    )
+    try:
+        # Parse the instruction using our naive parsing logic
+        parsed_params = parse_cad_instruction(request.instruction)
+        
+        # Log parsed results for debugging
+        logger.info(f"Parsed parameters: action={parsed_params.action}, "
+                   f"shape={parsed_params.shape}, height_mm={parsed_params.height_mm}, "
+                   f"diameter_mm={parsed_params.diameter_mm}, count={parsed_params.count}")
+        
+        # Create response with consistent JSON shape
+        response = InstructionResponse(
+            instruction=request.instruction,
+            parsed_parameters=parsed_params
+        )
+        
+        logger.info("Successfully processed instruction")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error processing instruction '{request.instruction}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error processing instruction: {str(e)}"
+        )
 
 
 @app.get("/config")
