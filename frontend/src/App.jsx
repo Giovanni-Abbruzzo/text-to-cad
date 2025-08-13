@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { processInstruction, fetchCommands } from './api.js'
+import { useState, useEffect, useRef } from 'react'
+import { processInstruction, fetchCommands, startJob, fetchJob } from './api.js'
 
 function App() {
   const [instruction, setInstruction] = useState('')
@@ -7,6 +7,11 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState([])
   const [useAI, setUseAI] = useState(false)
+  
+  // Job management state
+  const [currentJob, setCurrentJob] = useState(null) // { job_id, status, progress, error }
+  const [jobPolling, setJobPolling] = useState(false)
+  const pollingIntervalRef = useRef(null)
 
   // Fetch command history on component mount
   useEffect(() => {
@@ -20,28 +25,88 @@ function App() {
     }
     loadHistory()
   }, [])
+  
+  // Cleanup polling interval on component unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current)
+      }
+    }
+  }, [])
 
   const handleSend = async () => {
     setLoading(true)
     setResponse(null)
+    setCurrentJob(null)
+    
+    // Clear any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current)
+    }
 
     try {
       const data = await processInstruction(instruction, useAI)
       setResponse(data)
       
-      // Re-fetch history after successful instruction processing
+      // Start a job after successful instruction processing
       try {
-        const historyData = await fetchCommands(20)
-        setHistory(historyData)
-      } catch (historyError) {
-        console.error('Failed to refresh history:', historyError)
+        console.log('Starting job for processed instruction...')
+        const jobData = await startJob() // No command_id association for now
+        setCurrentJob(jobData)
+        setJobPolling(true)
+        
+        // Start polling for job status
+        startJobPolling(jobData.job_id)
+        
+      } catch (jobError) {
+        console.error('Failed to start job:', jobError)
+        // Don't fail the whole process if job creation fails
       }
+      
     } catch (error) {
       console.error('Error:', error)
       alert(`Failed to process instruction: ${error.message}`)
     } finally {
       setLoading(false)
     }
+  }
+  
+  const startJobPolling = (jobId) => {
+    console.log(`Starting polling for job: ${jobId}`)
+    
+    pollingIntervalRef.current = setInterval(async () => {
+      try {
+        const jobStatus = await fetchJob(jobId)
+        setCurrentJob(jobStatus)
+        
+        console.log(`Job ${jobId}: ${jobStatus.status} - ${jobStatus.progress}%`)
+        
+        // Check if job is complete
+        if (jobStatus.status === 'succeeded' || jobStatus.status === 'failed') {
+          console.log(`Job ${jobId} completed with status: ${jobStatus.status}`)
+          setJobPolling(false)
+          clearInterval(pollingIntervalRef.current)
+          pollingIntervalRef.current = null
+          
+          // Re-fetch history after job completion
+          try {
+            const historyData = await fetchCommands(20)
+            setHistory(historyData)
+            console.log('History refreshed after job completion')
+          } catch (historyError) {
+            console.error('Failed to refresh history after job completion:', historyError)
+          }
+        }
+        
+      } catch (error) {
+        console.error('Error polling job status:', error)
+        // Stop polling on error
+        setJobPolling(false)
+        clearInterval(pollingIntervalRef.current)
+        pollingIntervalRef.current = null
+      }
+    }, 600) // Poll every 600ms
   }
 
   return (
@@ -169,6 +234,98 @@ function App() {
         {loading ? 'Processing...' : 'Send'}
       </button>
 
+      {/* Job Progress Section */}
+      {currentJob && (
+        <div style={{
+          marginTop: '24px',
+          padding: '16px',
+          backgroundColor: '#f8f9fa',
+          border: '1px solid #e9ecef',
+          borderRadius: '8px'
+        }}>
+          <h3 style={{
+            fontSize: '1.1rem',
+            marginBottom: '12px',
+            color: '#495057',
+            fontWeight: '500'
+          }}>
+            Job Status
+          </h3>
+          
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '8px'
+            }}>
+              <span style={{
+                fontSize: '0.9rem',
+                color: '#495057',
+                fontWeight: '500'
+              }}>
+                Status: <span style={{
+                  color: currentJob.status === 'succeeded' ? '#28a745' : 
+                        currentJob.status === 'failed' ? '#dc3545' :
+                        currentJob.status === 'running' ? '#007bff' : '#6c757d'
+                }}>
+                  {currentJob.status}
+                </span>
+              </span>
+              <span style={{
+                fontSize: '0.9rem',
+                color: '#495057',
+                fontWeight: '500'
+              }}>
+                {currentJob.progress}%
+              </span>
+            </div>
+            
+            {/* Progress Bar */}
+            <div style={{
+              width: '100%',
+              height: '8px',
+              backgroundColor: '#e9ecef',
+              borderRadius: '4px',
+              overflow: 'hidden'
+            }}>
+              <div style={{
+                width: `${currentJob.progress}%`,
+                height: '100%',
+                backgroundColor: currentJob.status === 'failed' ? '#dc3545' : '#007bff',
+                transition: 'width 0.3s ease',
+                borderRadius: '4px'
+              }} />
+            </div>
+          </div>
+          
+          {/* Job ID and timestamps */}
+          <div style={{
+            fontSize: '0.8rem',
+            color: '#6c757d',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px'
+          }}>
+            <div>Job ID: {currentJob.job_id}</div>
+            {currentJob.created_at && (
+              <div>Started: {new Date(currentJob.created_at).toLocaleString()}</div>
+            )}
+            {currentJob.error && (
+              <div style={{ color: '#dc3545', fontWeight: '500' }}>
+                Error: {currentJob.error}
+              </div>
+            )}
+            {jobPolling && (
+              <div style={{ color: '#007bff', fontWeight: '500' }}>
+                🔄 Polling for updates...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Response Section */}
       {response && (
         <div style={{ marginBottom: '40px' }}>
           <h3 style={{ 
