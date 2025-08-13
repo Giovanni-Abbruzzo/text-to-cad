@@ -18,6 +18,7 @@ Author: Text-to-CAD Team
 import re
 import logging
 import json
+import os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +32,9 @@ from config import config
 # Import database components
 from db import engine, Base, SessionLocal, get_db
 from models import Command
+
+# Import AI/LLM functionality
+from llm import parse_instruction_with_ai, LLMParseError
 
 # Configure logging
 logging.basicConfig(
@@ -109,8 +113,12 @@ class InstructionRequest(BaseModel):
     Attributes:
         instruction (str): Natural language instruction for CAD operation
                           Must be at least 3 characters long and non-empty
+        use_ai (bool): Whether to use AI/LLM for parsing (default: False)
+                      If True and OPENAI_API_KEY is set, uses AI parsing;
+                      otherwise falls back to rule-based parsing
     """
     instruction: str
+    use_ai: bool = False
     
     @validator('instruction')
     def validate_instruction(cls, v):
@@ -163,10 +171,12 @@ class InstructionResponse(BaseModel):
     
     Attributes:
         instruction (str): Original instruction text
-        parsed_parameters (ParsedParameters): Extracted CAD parameters
+        source (str): Parsing source - "ai" or "rule"
+        parsed_parameters (Dict): Extracted CAD parameters (always present, with nulls where unknown)
     """
     instruction: str
-    parsed_parameters: ParsedParameters
+    source: str  # "ai" or "rule"
+    parsed_parameters: Dict
 
 
 class CommandResponse(BaseModel):
@@ -326,13 +336,18 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
 
 
 @app.post("/process_instruction")
-async def process_instruction(request: InstructionRequest, db: Session = Depends(get_db)) -> CommandResponse:
+async def process_instruction(request: InstructionRequest, db: Session = Depends(get_db)) -> InstructionResponse:
     """
     Process natural language CAD instruction, extract parameters, and save to database.
     
-    This endpoint takes a natural language instruction, uses naive parsing
-    to extract CAD-relevant parameters, saves the command to the database,
-    and returns the saved record with database ID.
+    This endpoint takes a natural language instruction, optionally uses AI/LLM parsing
+    when use_ai=True and OPENAI_API_KEY is configured, otherwise falls back to
+    rule-based parsing. Saves the command to database and returns normalized response.
+    
+    Parsing Logic:
+    - If use_ai=True and OPENAI_API_KEY is set: attempts AI parsing via OpenAI
+    - If AI fails or use_ai=False: falls back to rule-based parsing
+    - Always returns consistent response format with source indication
     
     Validation:
     - Instructions must be at least 3 characters long and non-empty
@@ -341,60 +356,89 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     Database Persistence:
     - Saves each processed command to the database for history tracking
     - Parameters are serialized to JSON string for storage
-    - Returns the saved record with auto-generated ID and timestamp
     
     Args:
-        request (InstructionRequest): Request containing the instruction text
+        request (InstructionRequest): Request containing instruction text and use_ai flag
         db (Session): Database session dependency
         
     Returns:
-        CommandResponse: Saved command record with ID, prompt, action, parameters, and timestamp
+        InstructionResponse: Normalized response with instruction, source, and parsed_parameters
         
     Raises:
         HTTPException: 422 if instruction validation fails, 500 for database errors
         
     Example:
-        Input: {"instruction": "extrude a 5mm tall cylinder with 10mm diameter"}
+        Input: {"instruction": "create a 5mm hole", "use_ai": true}
         Output: {
-            "id": 1,
-            "prompt": "extrude a 5mm tall cylinder with 10mm diameter",
-            "action": "extrude",
-            "parameters": {
-                "shape": "cylinder",
-                "height_mm": 5.0,
-                "diameter_mm": 10.0,
-                "count": null
-            },
-            "created_at": "2024-01-15T10:30:45.123456"
+            "instruction": "create a 5mm hole",
+            "source": "ai",
+            "parsed_parameters": {
+                "action": "create_hole",
+                "parameters": {
+                    "diameter_mm": 5,
+                    "count": null,
+                    "height_mm": null,
+                    "pattern": null
+                }
+            }
         }
     """
-    # Log incoming request
-    logger.info(f"Processing instruction: '{request.instruction}'")
+    # Log incoming request with AI flag
+    logger.info(f"Processing instruction: '{request.instruction}' (use_ai={request.use_ai})")
     
     try:
-        # Parse the instruction using our naive parsing logic
-        parsed_params = parse_cad_instruction(request.instruction)
+        parsed_result = None
+        source = "rule"  # Default to rule-based
         
-        # Log parsed results for debugging
-        logger.info(f"Parsed parameters: action={parsed_params.action}, "
-                   f"shape={parsed_params.shape}, height_mm={parsed_params.height_mm}, "
-                   f"diameter_mm={parsed_params.diameter_mm}, count={parsed_params.count}")
+        # Try AI parsing if requested and API key is available
+        if request.use_ai and os.getenv("OPENAI_API_KEY"):
+            try:
+                logger.info("Attempting AI parsing with OpenAI")
+                parsed_result = parse_instruction_with_ai(request.instruction)
+                source = "ai"
+                logger.info(f"AI parsing successful: {parsed_result}")
+            except LLMParseError as e:
+                logger.warning(f"AI parsing failed, falling back to rules: {e}")
+                parsed_result = None  # Will trigger fallback
+            except Exception as e:
+                logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
+                parsed_result = None  # Will trigger fallback
+        elif request.use_ai:
+            logger.info("AI requested but OPENAI_API_KEY not configured, using rule-based parsing")
         
-        # Serialize parsed parameters to JSON string for database storage
-        parameters_dict = {
-            "shape": parsed_params.shape,
-            "height_mm": parsed_params.height_mm,
-            "diameter_mm": parsed_params.diameter_mm,
-            "count": parsed_params.count
-        }
-        parameters_json = json.dumps(parameters_dict)
+        # Fallback to rule-based parsing if AI failed or wasn't used
+        if parsed_result is None:
+            logger.info("Using rule-based parsing")
+            parsed_params = parse_cad_instruction(request.instruction)
+            source = "rule"
+            
+            # Convert rule-based result to normalized format
+            parsed_result = {
+                "action": parsed_params.action,
+                "parameters": {
+                    "count": parsed_params.count,
+                    "diameter_mm": parsed_params.diameter_mm,
+                    "height_mm": parsed_params.height_mm,
+                    "pattern": None  # Rule-based parsing doesn't support patterns yet
+                }
+            }
+            # Add shape info if available (rule-based specific)
+            if hasattr(parsed_params, 'shape') and parsed_params.shape:
+                parsed_result["parameters"]["shape"] = parsed_params.shape
+        
+        # Log parsing results
+        logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
+                   f"Parameters: {parsed_result.get('parameters')}")
+        
+        # Serialize parameters for database storage
+        parameters_json = json.dumps(parsed_result.get("parameters", {}))
         
         # Create and save Command record to database
-        logger.info(f"Saving command to database: action='{parsed_params.action}'")
+        logger.info(f"Saving command to database: action='{parsed_result.get('action')}'")
         
         db_command = Command(
             prompt=request.instruction,
-            action=parsed_params.action,
+            action=parsed_result.get("action", "unknown"),
             parameters=parameters_json
         )
         
@@ -402,18 +446,16 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
         db.commit()
         db.refresh(db_command)  # Refresh to get auto-generated ID and timestamp
         
-        logger.info(f"Command saved successfully with ID: {db_command.id}")
+        logger.info(f"Command saved successfully with ID: {db_command.id} (source: {source})")
         
-        # Create response with saved command data
-        response = CommandResponse(
-            id=db_command.id,
-            prompt=db_command.prompt,
-            action=db_command.action,
-            parameters=parameters_dict,  # Return as dict, not JSON string
-            created_at=db_command.created_at
+        # Create normalized response
+        response = InstructionResponse(
+            instruction=request.instruction,
+            source=source,
+            parsed_parameters=parsed_result
         )
         
-        logger.info(f"Successfully processed and saved instruction with ID: {db_command.id}")
+        logger.info(f"Successfully processed instruction with ID: {db_command.id} using {source} parsing")
         return response
         
     except Exception as e:

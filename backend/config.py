@@ -30,7 +30,7 @@ class Config:
     # AI/LLM Configuration
     USE_LLM: bool = os.getenv("USE_LLM", "false").lower() == "true"
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     OPENAI_MAX_TOKENS: int = int(os.getenv("OPENAI_MAX_TOKENS", "1000"))
     
     # Database Configuration (for future use)

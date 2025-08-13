@@ -43,7 +43,7 @@ def parse_instruction_with_ai(text: str) -> Dict[str, Any]:
     """
     # Read environment variables with defaults
     api_key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     timeout = int(os.getenv("OPENAI_TIMEOUT_S", "20"))
     
     # Check if API key is available
@@ -63,6 +63,7 @@ Return ONLY valid JSON matching this exact schema:
     "count": number | null,
     "diameter_mm": number | null,
     "height_mm": number | null,
+    "shape": string | null,
     "pattern": {
       "type": "circular" | "linear" | null,
       "count": number | null,
@@ -75,8 +76,20 @@ Rules:
 - Use null for unspecified parameters
 - Extract numeric values when mentioned
 - Choose the most appropriate action type
+- Shape detection: Look for shape keywords like "cylinder", "box", "cube", "sphere", "cone", "block", "circle", "square", "rectangle"
 - For patterns, include type, count, and angle if specified
-- Return ONLY the JSON, no explanations or markdown"""
+- Pattern detection: Look for keywords like "array", "pattern", "circular", "linear", "repeat", "copy", "around", "in a circle", "in a line"
+- If no pattern is mentioned, set pattern to null
+- If no shape is mentioned, set shape to null
+- Return ONLY the JSON, no explanations or markdown
+
+Examples:
+- "create a 5mm hole" → shape: null, pattern: null
+- "extrude a 5mm tall cylinder with 10mm diameter" → shape: "cylinder", pattern: null
+- "create a box that is 10mm wide" → shape: "box", pattern: null
+- "make a sphere with 5mm radius" → shape: "sphere", pattern: null
+- "create 4 holes in a circular pattern" → shape: null, pattern: {"type": "circular", "count": 4, "angle_deg": null}
+- "make 3 cylinders in a line" → shape: "cylinder", pattern: {"type": "linear", "count": 3, "angle_deg": null}"""
 
     try:
         # Make API call to OpenAI
