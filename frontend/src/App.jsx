@@ -118,154 +118,185 @@ function App() {
 
   return (
     <div style={{ 
-      padding: '40px 20px', 
-      maxWidth: '800px', 
-      margin: '0 auto',
-      fontFamily: 'system-ui, -apple-system, sans-serif',
-      lineHeight: '1.6'
+      padding: '20px', 
+      margin: '0',
+      fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      lineHeight: '1.6',
+      backgroundColor: '#f8f9fa',
+      minHeight: '100vh',
+      width: '100vw',
+      boxSizing: 'border-box'
     }}>
-      <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+      <div style={{
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '0 20px'
+      }}>
+      {/* Page Header */}
+      <div style={{
+        textAlign: 'center',
+        marginBottom: '32px',
+        backgroundColor: 'white',
+        padding: '24px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        border: '1px solid #e9ecef'
+      }}>
         <h1 style={{ 
-          fontSize: '2.5rem', 
-          margin: '0 0 16px 0',
-          color: '#2c3e50',
-          fontWeight: '600'
+          margin: '0 0 8px 0',
+          color: '#212529',
+          fontSize: '2.25rem',
+          fontWeight: '700',
+          letterSpacing: '-0.025em'
         }}>
-          Text-to-CAD
+          Text-to-CAD Converter
         </h1>
-        <p style={{ 
-          fontSize: '1.1rem',
-          color: '#6c757d',
+        <p style={{
           margin: '0',
-          maxWidth: '600px',
-          marginLeft: 'auto',
-          marginRight: 'auto'
+          color: '#6c757d',
+          fontSize: '1.1rem',
+          fontWeight: '400'
         }}>
-          Type a natural-language CAD instruction; the API returns structured JSON
+          Convert natural language instructions into structured CAD commands
         </p>
       </div>
-      
-      <div style={{ marginBottom: '24px' }}>
-        <label htmlFor="instruction" style={{ 
-          display: 'block', 
-          marginBottom: '12px',
-          fontSize: '1rem',
-          fontWeight: '500',
-          color: '#495057'
-        }}>
-          Instruction:
-        </label>
-        <input
-          id="instruction"
-          type="text"
-          value={instruction}
-          onChange={(e) => setInstruction(e.target.value)}
-          placeholder="Extrude a 5mm tall cylinder with 10mm diameter" // type hint
-          style={{
-            width: '100%',
-            padding: '12px 16px',
-            fontSize: '16px',
-            border: '2px solid #e9ecef',
-            borderRadius: '8px',
-            outline: 'none',
-            transition: 'border-color 0.2s ease',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box'
-          }}
-          onFocus={(e) => e.target.style.borderColor = '#007bff'}
-          onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
-        />
-      </div>
 
-      {/* Use AI Toggle */}
-      <div style={{ marginBottom: '24px' }}>
-        <label style={{
-          display: 'flex',
-          alignItems: 'center',
-          fontSize: '1rem',
-          fontWeight: '500',
-          color: '#495057',
-          cursor: 'pointer'
+      {/* Instruction Section */}
+      <div style={{
+        backgroundColor: 'white',
+        padding: '24px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        border: '1px solid #e9ecef',
+        marginBottom: '20px'
+      }}>
+        <h2 style={{
+          margin: '0 0 16px 0',
+          color: '#212529',
+          fontSize: '1.5rem',
+          fontWeight: '600'
         }}>
+          📝 Instruction
+        </h2>
+        
+        <div style={{ marginBottom: '16px' }}>
           <input
-            type="checkbox"
-            checked={useAI}
-            onChange={(e) => setUseAI(e.target.checked)}
+            id="instruction"
+            type="text"
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            placeholder="e.g., Create a 5mm tall cylinder with 10mm diameter"
             style={{
-              marginRight: '8px',
-              width: '18px',
-              height: '18px',
-              cursor: 'pointer'
+              width: '100%',
+              padding: '14px 16px',
+              fontSize: '16px',
+              border: '2px solid #e9ecef',
+              borderRadius: '8px',
+              outline: 'none',
+              transition: 'border-color 0.2s ease',
+              fontFamily: 'inherit',
+              boxSizing: 'border-box'
             }}
+            onFocus={(e) => e.target.style.borderColor = '#007bff'}
+            onBlur={(e) => e.target.style.borderColor = '#e9ecef'}
           />
-          Use AI
-          <span style={{
-            marginLeft: '8px',
-            fontSize: '0.875rem',
-            color: '#6c757d',
-            fontWeight: 'normal'
+        </div>
+
+        {/* Use AI Toggle */}
+        <div style={{ marginBottom: '16px' }}>
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            fontSize: '0.95rem',
+            fontWeight: '500',
+            color: '#495057',
+            cursor: 'pointer'
           }}>
-            (requires OpenAI API key)
-          </span>
-        </label>
+            <input
+              type="checkbox"
+              checked={useAI}
+              onChange={(e) => setUseAI(e.target.checked)}
+              style={{
+                marginRight: '8px',
+                width: '16px',
+                height: '16px',
+                cursor: 'pointer'
+              }}
+            />
+            🤖 Use AI Enhancement
+            <span style={{
+              marginLeft: '8px',
+              fontSize: '0.8rem',
+              color: '#6c757d',
+              fontWeight: 'normal'
+            }}>
+              (requires OpenAI API key)
+            </span>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            onClick={handleSend}
+            disabled={loading || !instruction.trim() || (currentJob && currentJob.status === 'running')}
+            style={{
+              padding: '14px 28px',
+              fontSize: '16px',
+              fontWeight: '600',
+              backgroundColor: (loading || (currentJob && currentJob.status === 'running')) ? '#6c757d' : '#007bff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: (loading || (currentJob && currentJob.status === 'running')) ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit',
+              transition: 'all 0.2s ease',
+              minWidth: '140px',
+              boxShadow: '0 2px 4px rgba(0,123,255,0.3)'
+            }}
+            onMouseOver={(e) => {
+              if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
+                e.target.style.backgroundColor = '#0056b3'
+                e.target.style.transform = 'translateY(-1px)'
+              }
+            }}
+            onMouseOut={(e) => {
+              if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
+                e.target.style.backgroundColor = '#007bff'
+                e.target.style.transform = 'translateY(0)'
+              }
+            }}
+          >
+            {loading ? '⏳ Processing...' : 
+             (currentJob && currentJob.status === 'running') ? '🔄 Job Running...' : 
+             '🚀 Send'}
+          </button>
+        </div>
       </div>
 
-      <button
-        onClick={handleSend}
-        disabled={loading || !instruction.trim() || (currentJob && currentJob.status === 'running')}
-        style={{
-          padding: '12px 24px',
-          fontSize: '16px',
-          fontWeight: '500',
-          backgroundColor: (loading || (currentJob && currentJob.status === 'running')) ? '#6c757d' : '#007bff',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          cursor: (loading || (currentJob && currentJob.status === 'running')) ? 'not-allowed' : 'pointer',
-          marginBottom: '32px',
-          fontFamily: 'inherit',
-          transition: 'background-color 0.2s ease',
-          minWidth: '120px'
-        }}
-        onMouseOver={(e) => {
-          if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
-            e.target.style.backgroundColor = '#0056b3'
-          }
-        }}
-        onMouseOut={(e) => {
-          if (!loading && instruction.trim() && !(currentJob && currentJob.status === 'running')) {
-            e.target.style.backgroundColor = '#007bff'
-          }
-        }}
-      >
-        {loading ? 'Processing...' : 
-         (currentJob && currentJob.status === 'running') ? 'Job Running...' : 
-         'Send'}
-      </button>
-
-      {/* Job Progress Section */}
+      {/* Job Status Section */}
       {currentJob && (
         <div style={{
-          marginTop: '24px',
-          padding: '16px',
-          backgroundColor: '#f8f9fa',
+          backgroundColor: 'white',
+          padding: '24px',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
           border: '1px solid #e9ecef',
-          borderRadius: '8px'
+          marginBottom: '20px'
         }}>
           <div style={{
             display: 'flex',
             alignItems: 'center',
-            marginBottom: '12px',
+            marginBottom: '16px',
             gap: '12px'
           }}>
-            <h3 style={{
-              fontSize: '1.1rem',
+            <h2 style={{
+              fontSize: '1.5rem',
               margin: '0',
-              color: '#495057',
-              fontWeight: '500'
+              color: '#212529',
+              fontWeight: '600'
             }}>
-              Job Status
-            </h3>
+              ⚙️ Job Status
+            </h2>
             
             {/* Status Badge */}
             <span style={{
@@ -395,55 +426,69 @@ function App() {
         </div>
       )}
 
-      {/* Response Section */}
+      {/* Result Section */}
       {response && (
-        <div style={{ marginBottom: '40px' }}>
-          <h3 style={{ 
-            fontSize: '1.25rem',
-            marginBottom: '16px',
-            color: '#495057',
-            fontWeight: '500'
+        <div style={{
+          backgroundColor: 'white',
+          padding: '24px',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          border: '1px solid #e9ecef',
+          marginBottom: '20px'
+        }}>
+          <h2 style={{ 
+            margin: '0 0 16px 0',
+            color: '#212529',
+            fontSize: '1.5rem',
+            fontWeight: '600'
           }}>
-            Response:
-          </h3>
+            ✅ Result
+          </h2>
           
           {/* Source Display */}
-          <div style={{ marginBottom: '16px' }}>
-            <span style={{
-              fontSize: '1rem',
-              fontWeight: '500',
-              color: '#495057'
+          <div style={{ marginBottom: '20px' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px'
             }}>
-              Source: 
-            </span>
-            <span style={{
-              backgroundColor: response.source === 'ai' ? '#d4edda' : '#fff3cd',
-              color: response.source === 'ai' ? '#155724' : '#856404',
-              padding: '4px 12px',
-              borderRadius: '16px',
-              fontSize: '0.875rem',
-              fontWeight: '500',
-              marginLeft: '8px'
-            }}>
-              {response.source === 'ai' ? '🤖 AI' : '📋 Rule-based'}
-            </span>
+              <span style={{
+                fontSize: '0.95rem',
+                fontWeight: '500',
+                color: '#495057'
+              }}>
+                Processing Method:
+              </span>
+              <span style={{
+                backgroundColor: response.source === 'ai' ? '#d4edda' : '#fff3cd',
+                color: response.source === 'ai' ? '#155724' : '#856404',
+                padding: '6px 12px',
+                borderRadius: '20px',
+                fontSize: '0.85rem',
+                fontWeight: '600',
+                border: `1px solid ${response.source === 'ai' ? '#c3e6cb' : '#ffeaa7'}`
+              }}>
+                {response.source === 'ai' ? '🤖 AI Enhanced' : '📋 Rule-based'}
+              </span>
+            </div>
           </div>
 
           {/* Parsed Parameters Table */}
           <div style={{ marginBottom: '20px' }}>
-            <h4 style={{
-              fontSize: '1rem',
+            <h3 style={{
+              fontSize: '1.1rem',
               marginBottom: '12px',
               color: '#495057',
-              fontWeight: '500'
+              fontWeight: '600'
             }}>
-              Parsed Parameters:
-            </h4>
+              📊 Parsed Parameters
+            </h3>
             <div style={{
               backgroundColor: '#f8f9fa',
               border: '1px solid #e9ecef',
-              borderRadius: '8px',
-              overflow: 'hidden'
+              borderRadius: '10px',
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
             }}>
               <table style={{
                 width: '100%',
@@ -501,29 +546,34 @@ function App() {
           </div>
 
           {/* Raw JSON (collapsible) */}
-          <details style={{ marginTop: '16px' }}>
+          <details style={{ marginTop: '20px' }}>
             <summary style={{
               cursor: 'pointer',
-              fontSize: '0.875rem',
+              fontSize: '0.9rem',
               color: '#6c757d',
-              fontWeight: '500',
-              marginBottom: '8px'
+              fontWeight: '600',
+              marginBottom: '8px',
+              padding: '8px 12px',
+              backgroundColor: '#f8f9fa',
+              borderRadius: '6px',
+              border: '1px solid #e9ecef'
             }}>
-              View Raw JSON
+              🔍 View Raw JSON Response
             </summary>
             <pre
               style={{
-                backgroundColor: '#000000',
-                color: '#ffffff',
-                padding: '16px',
-                borderRadius: '6px',
+                backgroundColor: '#1a1a1a',
+                color: '#f8f8f2',
+                padding: '20px',
+                borderRadius: '8px',
                 overflow: 'auto',
                 border: '1px solid #e9ecef',
-                fontSize: '12px',
-                lineHeight: '1.4',
+                fontSize: '13px',
+                lineHeight: '1.5',
                 fontFamily: 'Monaco, Consolas, "Courier New", monospace',
                 maxHeight: '300px',
-                marginTop: '8px'
+                marginTop: '12px',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
               }}
             >
               {JSON.stringify(response, null, 2)}
@@ -533,80 +583,108 @@ function App() {
       )}
 
       {/* History Section */}
-      <div>
-        <h3 style={{ 
-          fontSize: '1.25rem',
-          marginBottom: '16px',
-          color: '#495057',
-          fontWeight: '500'
+      <div style={{
+        backgroundColor: 'white',
+        padding: '24px',
+        borderRadius: '12px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        border: '1px solid #e9ecef'
+      }}>
+        <h2 style={{ 
+          margin: '0 0 16px 0',
+          color: '#212529',
+          fontSize: '1.5rem',
+          fontWeight: '600'
         }}>
-          Command History:
-        </h3>
+          📚 History
+        </h2>
         {history.length === 0 ? (
-          <p style={{ 
-            color: '#6c757d',
-            fontStyle: 'italic',
-            margin: '0'
+          <div style={{
+            textAlign: 'center',
+            padding: '40px 20px',
+            color: '#6c757d'
           }}>
-            No commands yet. Send your first instruction above!
-          </p>
+            <div style={{
+              fontSize: '3rem',
+              marginBottom: '16px',
+              opacity: 0.3
+            }}>
+              📝
+            </div>
+            <p style={{ 
+              fontSize: '1.1rem',
+              fontStyle: 'italic',
+              margin: '0'
+            }}>
+              No commands yet. Send your first instruction above!
+            </p>
+          </div>
         ) : (
           <div style={{
-            backgroundColor: '#f8f9fa',
-            border: '1px solid #e9ecef',
-            borderRadius: '8px',
-            padding: '16px',
             maxHeight: '400px',
-            overflowY: 'auto'
+            overflowY: 'auto',
+            paddingRight: '8px'
           }}>
             {history.map((command) => (
               <div
                 key={command.id}
                 style={{
-                  padding: '12px',
-                  marginBottom: '8px',
-                  backgroundColor: 'white',
+                  padding: '16px',
+                  marginBottom: '12px',
+                  backgroundColor: '#f8f9fa',
                   border: '1px solid #e9ecef',
-                  borderRadius: '6px',
+                  borderRadius: '10px',
                   fontSize: '14px',
-                  lineHeight: '1.4'
+                  lineHeight: '1.5',
+                  position: 'relative',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
                 }}
               >
                 <div style={{ 
                   display: 'flex', 
                   alignItems: 'center', 
-                  marginBottom: '8px',
+                  marginBottom: '12px',
                   flexWrap: 'wrap',
                   gap: '8px'
                 }}>
                   <span style={{ 
-                    fontWeight: 'bold',
+                    fontWeight: '700',
                     color: '#007bff',
-                    fontSize: '12px'
+                    fontSize: '13px',
+                    backgroundColor: 'white',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    border: '1px solid #007bff'
                   }}>
                     #{command.id}
                   </span>
                   <span style={{ 
                     backgroundColor: '#e7f3ff',
                     color: '#0056b3',
-                    padding: '2px 8px',
-                    borderRadius: '12px',
+                    padding: '4px 12px',
+                    borderRadius: '16px',
                     fontSize: '12px',
-                    fontWeight: '500'
+                    fontWeight: '600',
+                    border: '1px solid #bee5eb'
                   }}>
                     {command.action}
                   </span>
                   <span style={{ 
                     color: '#6c757d',
-                    fontSize: '12px',
-                    marginLeft: 'auto'
+                    fontSize: '11px',
+                    marginLeft: 'auto',
+                    fontWeight: '500'
                   }}>
                     {new Date(command.created_at).toLocaleString()}
                   </span>
                 </div>
                 <div style={{ 
                   color: '#495057',
-                  fontWeight: '500'
+                  fontWeight: '500',
+                  backgroundColor: 'white',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  border: '1px solid #e9ecef'
                 }}>
                   {command.prompt}
                 </div>
@@ -614,6 +692,7 @@ function App() {
             ))}
           </div>
         )}
+      </div>
       </div>
     </div>
   )

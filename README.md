@@ -2,6 +2,93 @@
 
 Prototype: natural-language → structured CAD commands. FastAPI backend + React (Vite) frontend.
 
+## 🚀 Quickstart (Local)
+
+Get up and running in under 2 minutes:
+
+### Backend Setup
+```bash
+cd backend
+python -m venv .venv
+
+# Windows
+.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
+
+pip install -r requirements.txt
+python -m uvicorn main:app --reload
+```
+
+### Frontend Setup
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Environment Configuration
+Create `.env` files for configuration:
+
+**Frontend** (`frontend/.env`):
+```
+VITE_API_BASE=http://localhost:8000
+```
+
+**Backend** (`backend/.env`) - Optional for AI features:
+```
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+---
+
+## 🎬 Quick Demo (45 seconds)
+
+Perfect for showcasing the system:
+
+1. **"Type: Extrude 3 cylinders that are 15mm tall with 8mm diameter."**
+2. **"Send — backend parses (AI or rules) → structured JSON."**
+3. **"History shows recent commands with timestamps."**
+4. **"Start job automatically — progress bar goes 0→100."**
+5. **"This API shape is ready to wire into Fusion/SolidWorks plugins."**
+
+### Key Talking Points
+- **"End-to-end: React → FastAPI → SQLite (SQLAlchemy) → (optional LLM) → telemetry."**
+- **"Consistent JSON schema; always returns same shape; nulls for unknowns."**
+- **"Safe AI fallback; never blocks the UI."**
+- **"Containerization/Cloud Run are next; architecture already cleanly separated."**
+
+---
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**CORS Errors**
+- Confirm backend CORS settings are correct
+- Verify `VITE_API_BASE` in frontend `.env` matches backend URL
+
+**Port Already in Use**
+- Backend: Change from 8000 → `uvicorn main:app --reload --port 8001`
+- Frontend: Change from 5173 → `npm run dev -- --port 3000`
+
+**Windows Virtual Environment Issues**
+- Use: `py -3.11 -m venv .venv` 
+- Activate: `.venv\Scripts\Activate.ps1`
+- If PowerShell blocked: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+**OpenAI Key Missing**
+- Set `use_ai=false` in UI (checkbox unchecked)
+- App falls back to rule-based parsing automatically
+- No API key needed for basic functionality
+
+**Frontend Won't Connect**
+- Check backend is running at `http://localhost:8000`
+- Verify `VITE_API_BASE` environment variable
+- Try direct API test: `curl http://localhost:8000/health`
+
+---
+
 ## Backend Quickstart
 
 ### Setup & Installation
