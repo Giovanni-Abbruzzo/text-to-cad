@@ -41,12 +41,33 @@ from llm import parse_instruction_with_ai, LLMParseError
 # Import job runner functionality
 from jobs import start_job, get_job
 
-# Configure logging
+# Configure logging first (needed for geometry import error handling)
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("text-to-cad-backend")
+
+# Import geometry building and export functionality (optional for development)
+try:
+    from geometry.model_builder import dispatch_build
+    from geometry.exporter import export_solid, ensure_outputs_directory
+    GEOMETRY_AVAILABLE = True
+    logger.info("Geometry modules loaded successfully")
+except ImportError as e:
+    logger.warning(f"Geometry modules not available: {e}")
+    logger.warning("CadQuery dependencies may not be installed. /generate_model endpoint will be disabled.")
+    GEOMETRY_AVAILABLE = False
+    
+    # Define dummy functions to prevent import errors
+    def dispatch_build(action, params):
+        raise HTTPException(status_code=503, detail="Geometry functionality not available - CadQuery dependencies not installed")
+    
+    def export_solid(solid, kind="step", prefix="model"):
+        raise HTTPException(status_code=503, detail="Export functionality not available - CadQuery dependencies not installed")
+    
+    def ensure_outputs_directory():
+        raise HTTPException(status_code=503, detail="Export functionality not available - CadQuery dependencies not installed")
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -108,6 +129,7 @@ async def root() -> Dict[str, str]:
         "health": "/health",
         "endpoints": {
             "process_instruction": "/process_instruction",
+            "generate_model": "/generate_model",
             "config": "/config"
         }
     }
@@ -487,7 +509,22 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     - If AI fails or use_ai=False: falls back to rule-based parsing
     - Always returns consistent response format with source indication
     
-    Validation:
+    Validation:Prompt S8-B (endpoint)
+
+Add POST /generate_model with body:
+
+{ "instruction": "...", "use_ai": false, "export_step": true, "export_stl": false }
+
+
+Steps:
+
+Parse via parse_instruction_internal.
+
+dispatch_build(action, params) → CadQuery solid.
+
+Export STEP/STL based on flags; return { step_url, stl_url, summary }.
+
+Mount /outputs if not already.
     - Instructions must be at least 3 characters long and non-empty
     - Returns 422 with clear error message for invalid instructions
     
@@ -693,6 +730,60 @@ async def get_config() -> Dict:
 
 
 # Job Management Endpoints
+class GenerateModelRequest(BaseModel):
+    """
+    Request model for generating CAD models with file exports.
+    
+    Attributes:
+        instruction (str): Natural language instruction for CAD operation
+        use_ai (bool): Whether to use AI/LLM for parsing (default: False)
+        export_step (bool): Whether to export STEP file (default: True)
+        export_stl (bool): Whether to export STL file (default: False)
+    """
+    instruction: str
+    use_ai: bool = False
+    export_step: bool = True
+    export_stl: bool = False
+    
+    @validator('instruction')
+    def validate_instruction(cls, v):
+        """
+        Validate that instruction is not blank or too short.
+        
+        Args:
+            v (str): The instruction string to validate
+            
+        Returns:
+            str: The validated instruction
+            
+        Raises:
+            ValueError: If instruction is blank, too short, or only whitespace
+        """
+        if not v or not v.strip():
+            raise ValueError("Instruction cannot be blank")
+        if len(v.strip()) < 3:
+            raise ValueError("Instruction must be at least 3 characters long")
+        return v.strip()
+
+
+class GenerateModelResponse(BaseModel):
+    """
+    Response model for generated CAD models with download links.
+    
+    Attributes:
+        instruction (str): Original instruction text
+        source (str): Parsing source - "ai" or "rule"
+        step_url (Optional[str]): Download URL for STEP file if exported
+        stl_url (Optional[str]): Download URL for STL file if exported
+        summary (str): Summary of the generated model and operations performed
+    """
+    instruction: str
+    source: str
+    step_url: Optional[str] = None
+    stl_url: Optional[str] = None
+    summary: str
+
+
 class JobRequest(BaseModel):
     """
     Request model for starting a new job.
@@ -701,6 +792,170 @@ class JobRequest(BaseModel):
         command_id (Optional[int]): ID of a saved command to associate with this job
     """
     command_id: Optional[int] = None
+
+
+@app.post("/generate_model")
+async def generate_model(request: GenerateModelRequest) -> GenerateModelResponse:
+    """
+    Generate CAD model from natural language instruction and export to files.
+    
+    This endpoint processes a natural language instruction, builds a 3D CAD model,
+    and exports it to the requested file formats (STEP/STL). Returns download URLs
+    for the generated files.
+    
+    Workflow:
+    1. Parse instruction using parse_instruction_internal helper
+    2. Build 3D model using dispatch_build from geometry.model_builder
+    3. Export to STEP/STL files as requested using geometry.exporter
+    4. Return download URLs and summary
+    
+    Args:
+        request (GenerateModelRequest): Request with instruction and export options
+        
+    Returns:
+        GenerateModelResponse: Response with download URLs and model summary
+        
+    Raises:
+        HTTPException: 422 for validation errors, 500 for processing errors
+        
+    Example:
+        Input: {
+            "instruction": "create a cylinder 20mm high and 15mm diameter",
+            "use_ai": true,
+            "export_step": true,
+            "export_stl": false
+        }
+        Output: {
+            "instruction": "create a cylinder 20mm high and 15mm diameter",
+            "source": "ai",
+            "step_url": "/outputs/cylinder_20250814_014500_a1b2c3d4.step",
+            "stl_url": null,
+            "summary": "Generated cylinder with 15mm diameter and 20mm height. Exported STEP file."
+        }
+    """
+    logger.info(f"Generating model for instruction: '{request.instruction}' (use_ai={request.use_ai}, export_step={request.export_step}, export_stl={request.export_stl})")
+    
+    # Check if geometry functionality is available
+    if not GEOMETRY_AVAILABLE:
+        logger.error("Geometry functionality not available - CadQuery dependencies missing")
+        raise HTTPException(
+            status_code=503,
+            detail="CAD model generation not available. CadQuery dependencies are not properly installed. Please install: pip install cadquery"
+        )
+    
+    try:
+        # Step 1: Parse instruction using the refactored helper
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
+        
+        action = parsed_result.get("action", "unknown")
+        parameters = parsed_result.get("parameters", {})
+        
+        logger.info(f"Parsed instruction - Action: {action}, Parameters: {parameters}")
+        
+        # Step 2: Build 3D model using dispatch_build
+        logger.info("Building 3D model...")
+        solid = dispatch_build(action, parameters)
+        logger.info("3D model built successfully")
+        
+        # Step 3: Export files as requested
+        step_url = None
+        stl_url = None
+        exported_files = []
+        
+        # Ensure outputs directory exists
+        ensure_outputs_directory()
+        
+        # Export STEP file if requested
+        if request.export_step:
+            try:
+                logger.info("Exporting STEP file...")
+                step_path = export_solid(solid, kind="step", prefix="model")
+                step_url = f"/{step_path}"  # Add leading slash for URL
+                exported_files.append("STEP")
+                logger.info(f"STEP file exported: {step_url}")
+            except Exception as e:
+                logger.error(f"Failed to export STEP file: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to export STEP file: {str(e)}"
+                )
+        
+        # Export STL file if requested
+        if request.export_stl:
+            try:
+                logger.info("Exporting STL file...")
+                stl_path = export_solid(solid, kind="stl", prefix="model")
+                stl_url = f"/{stl_path}"  # Add leading slash for URL
+                exported_files.append("STL")
+                logger.info(f"STL file exported: {stl_url}")
+            except Exception as e:
+                logger.error(f"Failed to export STL file: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to export STL file: {str(e)}"
+                )
+        
+        # Step 4: Generate summary
+        shape_info = parameters.get("shape", "feature")
+        diameter = parameters.get("diameter_mm")
+        height = parameters.get("height_mm")
+        count = parameters.get("count")
+        
+        # Build descriptive summary
+        summary_parts = []
+        
+        if action == "create_hole":
+            if count and count > 1:
+                summary_parts.append(f"Generated {count} holes")
+            else:
+                summary_parts.append("Generated hole")
+            
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+        
+        elif action == "create_feature" and shape_info == "cylinder":
+            summary_parts.append("Generated cylinder")
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+            if height:
+                summary_parts.append(f"and {height}mm height")
+        
+        else:
+            summary_parts.append(f"Generated {shape_info or 'CAD model'}")
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+            if height:
+                summary_parts.append(f"and {height}mm height")
+        
+        # Add export information
+        if exported_files:
+            summary_parts.append(f"Exported {' and '.join(exported_files)} file{'s' if len(exported_files) > 1 else ''}")
+        
+        summary = ". ".join(summary_parts) + "."
+        
+        # Create response
+        response = GenerateModelResponse(
+            instruction=request.instruction,
+            source=source,
+            step_url=step_url,
+            stl_url=stl_url,
+            summary=summary
+        )
+        
+        logger.info(f"Model generation complete - Summary: {summary}")
+        return response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Error generating model for instruction '{request.instruction}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error generating model: {str(e)}"
+        )
 
 
 @app.post("/jobs")
