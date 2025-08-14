@@ -711,3 +711,146 @@ INFO - Started job c821c37e-89b8-4610-bae4-43423 with meta: {}
 INFO - Job c821c37e-89b8-4610-bae4-43423 started running
 INFO - Job c821c37e-89b8-4610-bae4-43423 completed successfully
 ```
+
+## 3D Model Generation (Sprint 7)
+
+The Text-to-CAD system now includes **full 3D geometry generation** powered by **CadQuery**, enabling the creation of actual CAD models from natural language instructions. The system can build simple solids and export them as downloadable STEP and STL files.
+
+### CadQuery Integration
+
+**CadQuery** is a powerful Python library for building parametric 3D CAD models. It provides:
+
+- **Parametric Modeling**: Code-driven CAD with full programmatic control
+- **Industry Standards**: Native STEP and STL export capabilities
+- **Python Integration**: Seamless integration with the FastAPI backend
+- **Robust Geometry**: Reliable solid modeling operations
+
+### Supported Shapes & Operations
+
+The system currently supports these CAD operations:
+
+#### Extruded Cylinder
+- **Action**: `"extrude"` with `"shape": "cylinder"`
+- **Parameters**: `diameter_mm`, `height_mm`
+- **Example**: *"Extrude a 20mm diameter cylinder that is 30mm tall"*
+
+#### Plate with Holes
+- **Action**: `"create_hole"`, `"pattern"`, or `"create_feature"`
+- **Parameters**: `height_mm` (plate thickness), `diameter_mm` (hole size), `count`, `pattern`
+- **Pattern Types**: Circular or linear hole arrangements
+- **Example**: *"Create a plate with 6 holes in a circular pattern"*
+
+### Geometry Building API
+
+The geometry package provides clean Python functions for building CAD models:
+
+```python
+from geometry import dispatch_build, export_solid
+
+# Build a cylinder from parsed parameters
+cylinder_params = {
+    "shape": "cylinder",
+    "diameter_mm": 25.0,
+    "height_mm": 40.0
+}
+cylinder = dispatch_build("extrude", cylinder_params)
+
+# Build a plate with holes
+plate_params = {
+    "height_mm": 12.0,
+    "diameter_mm": 6.0,
+    "count": 6,
+    "pattern": {"type": "circular", "count": 6}
+}
+plate = dispatch_build("create_feature", plate_params)
+
+# Export to downloadable files
+step_path = export_solid(cylinder, kind="step", prefix="cylinder")
+stl_path = export_solid(plate, kind="stl", prefix="plate")
+```
+
+### File Export & Downloads
+
+#### Export Formats
+- **STEP Files** (`.step`): Industry-standard CAD format for professional use
+- **STL Files** (`.stl`): 3D printing and mesh-based applications
+
+#### File Management
+- **Unique Filenames**: Auto-generated with timestamps and UUIDs
+  - Format: `model_20250814_010615_a1b2c3d4.step`
+- **Automatic Cleanup**: Keeps most recent 75 files, removes older exports
+- **Metadata Tracking**: File size, creation time, and format information
+
+#### Download Access
+All exported files are served via FastAPI static file mounting:
+
+- **Base URL**: `http://localhost:8000/outputs/`
+- **Example URLs**:
+  - `http://localhost:8000/outputs/cylinder_20250814_010615_a1b2c3d4.step`
+  - `http://localhost:8000/outputs/plate_20250814_010615_a1b2c3d4.stl`
+
+#### File Storage Location
+- **Directory**: `backend/outputs/`
+- **Auto-Creation**: Directory is created automatically if it doesn't exist
+- **Persistence**: Files remain available until cleanup or server restart
+
+### Integration with Existing Workflow
+
+The 3D model generation integrates seamlessly with the existing text-to-CAD pipeline:
+
+1. **Natural Language Input**: *"Create a 25mm diameter cylinder that is 40mm tall"*
+2. **Parameter Parsing**: AI or rule-based parsing extracts structured parameters
+3. **Geometry Building**: `dispatch_build()` creates CadQuery solid from parameters
+4. **File Export**: `export_solid()` generates downloadable STEP/STL files
+5. **Download Access**: Files available via `/outputs/` static file endpoint
+
+### Example Usage Workflow
+
+```python
+# Complete workflow example
+from geometry import dispatch_build, export_solid
+
+# 1. Parse instruction (already implemented in main.py)
+parsed_params = {
+    "action": "extrude",
+    "shape": "cylinder", 
+    "diameter_mm": 20.0,
+    "height_mm": 30.0
+}
+
+# 2. Build 3D geometry
+solid = dispatch_build(parsed_params["action"], parsed_params)
+
+# 3. Export to files
+step_file = export_solid(solid, kind="step", prefix="my_cylinder")
+stl_file = export_solid(solid, kind="stl", prefix="my_cylinder")
+
+# 4. Files are now downloadable at:
+# http://localhost:8000/outputs/my_cylinder_20250814_010615_a1b2c3d4.step
+# http://localhost:8000/outputs/my_cylinder_20250814_010615_a1b2c3d4.stl
+```
+
+### Default Parameters & Fallbacks
+
+The system provides sensible defaults when parameters are missing:
+
+#### Cylinder Defaults
+- **Diameter**: 20mm
+- **Height**: 30mm
+
+#### Plate with Holes Defaults
+- **Plate Size**: 100mm × 80mm
+- **Plate Thickness**: 10mm
+- **Hole Diameter**: 5mm
+- **Hole Count**: 4
+- **Pattern**: Circular arrangement
+
+### Future Enhancements
+
+The geometry system is designed for easy extension:
+
+- **Additional Shapes**: Boxes, spheres, complex extrusions
+- **Advanced Operations**: Fillets, chamfers, boolean operations
+- **Pattern Enhancements**: Grid patterns, custom spacing
+- **Assembly Support**: Multi-part CAD assemblies
+- **Material Properties**: Density, material specifications for export
