@@ -22,6 +22,7 @@ import os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, validator
 from typing import Dict, Optional, Union, List, Any
 from sqlalchemy.orm import Session
@@ -76,6 +77,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for downloadable CAD outputs
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 
 
 @app.get("/health")
