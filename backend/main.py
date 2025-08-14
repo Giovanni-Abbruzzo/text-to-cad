@@ -243,6 +243,88 @@ class CommandOut(BaseModel):
 
 
 # Parsing Logic
+def parse_instruction_internal(text: str, use_ai: bool) -> dict:
+    """
+    Internal helper function to parse natural language CAD instructions.
+    
+    This function encapsulates the parsing logic that can be used by both
+    /process_instruction and /generate_model endpoints. It handles AI parsing
+    attempts with fallback to rule-based parsing.
+    
+    Parsing Logic:
+    - If use_ai=True and OPENAI_API_KEY is set: attempts AI parsing via OpenAI
+    - If AI fails or use_ai=False: falls back to rule-based parsing
+    - Always returns consistent normalized format with source indication
+    
+    Args:
+        text (str): Natural language instruction to parse
+        use_ai (bool): Whether to attempt AI parsing first
+        
+    Returns:
+        dict: Parsed result with structure:
+            {
+                "result": {
+                    "action": str,
+                    "parameters": {
+                        "count": Optional[int],
+                        "diameter_mm": Optional[float],
+                        "height_mm": Optional[float],
+                        "shape": Optional[str],
+                        "pattern": Optional[dict]
+                    }
+                },
+                "source": str  # "ai" or "rule"
+            }
+    """
+    logger.info(f"Parsing instruction: '{text}' (use_ai={use_ai})")
+    
+    parsed_result = None
+    source = "rule"  # Default to rule-based
+    
+    # Try AI parsing if requested and API key is available
+    if use_ai and os.getenv("OPENAI_API_KEY"):
+        try:
+            logger.info("Attempting AI parsing with OpenAI")
+            parsed_result = parse_instruction_with_ai(text)
+            source = "ai"
+            logger.info(f"AI parsing successful: {parsed_result}")
+        except LLMParseError as e:
+            logger.warning(f"AI parsing failed, falling back to rules: {e}")
+            parsed_result = None  # Will trigger fallback
+        except Exception as e:
+            logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
+            parsed_result = None  # Will trigger fallback
+    elif use_ai:
+        logger.info("AI requested but OPENAI_API_KEY not configured, using rule-based parsing")
+    
+    # Fallback to rule-based parsing if AI failed or wasn't used
+    if parsed_result is None:
+        logger.info("Using rule-based parsing")
+        parsed_params = parse_cad_instruction(text)
+        source = "rule"
+        
+        # Convert rule-based result to normalized format
+        parsed_result = {
+            "action": parsed_params.action,
+            "parameters": {
+                "count": parsed_params.count,
+                "diameter_mm": parsed_params.diameter_mm,
+                "height_mm": parsed_params.height_mm,
+                "shape": parsed_params.shape,  # Always include shape field (null if not detected)
+                "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
+            }
+        }
+    
+    # Log parsing results
+    logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
+               f"Parameters: {parsed_result.get('parameters')}")
+    
+    return {
+        "result": parsed_result,
+        "source": source
+    }
+
+
 def parse_cad_instruction(instruction: str) -> ParsedParameters:
     """
     Parse natural language CAD instruction into structured parameters.
@@ -443,46 +525,10 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     logger.info(f"Processing instruction: '{request.instruction}' (use_ai={request.use_ai})")
     
     try:
-        parsed_result = None
-        source = "rule"  # Default to rule-based
-        
-        # Try AI parsing if requested and API key is available
-        if request.use_ai and os.getenv("OPENAI_API_KEY"):
-            try:
-                logger.info("Attempting AI parsing with OpenAI")
-                parsed_result = parse_instruction_with_ai(request.instruction)
-                source = "ai"
-                logger.info(f"AI parsing successful: {parsed_result}")
-            except LLMParseError as e:
-                logger.warning(f"AI parsing failed, falling back to rules: {e}")
-                parsed_result = None  # Will trigger fallback
-            except Exception as e:
-                logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
-                parsed_result = None  # Will trigger fallback
-        elif request.use_ai:
-            logger.info("AI requested but OPENAI_API_KEY not configured, using rule-based parsing")
-        
-        # Fallback to rule-based parsing if AI failed or wasn't used
-        if parsed_result is None:
-            logger.info("Using rule-based parsing")
-            parsed_params = parse_cad_instruction(request.instruction)
-            source = "rule"
-            
-            # Convert rule-based result to normalized format
-            parsed_result = {
-                "action": parsed_params.action,
-                "parameters": {
-                    "count": parsed_params.count,
-                    "diameter_mm": parsed_params.diameter_mm,
-                    "height_mm": parsed_params.height_mm,
-                    "shape": parsed_params.shape,  # Always include shape field (null if not detected)
-                    "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
-                }
-            }
-        
-        # Log parsing results
-        logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
-                   f"Parameters: {parsed_result.get('parameters')}")
+        # Use the refactored parsing helper
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
         
         # Serialize parameters for database storage
         parameters_json = json.dumps(parsed_result.get("parameters", {}))
