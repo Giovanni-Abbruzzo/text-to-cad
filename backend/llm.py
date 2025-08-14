@@ -77,6 +77,8 @@ Rules:
 - Extract numeric values when mentioned
 - Choose the most appropriate action type
 - Shape detection: Look for shape keywords like "cylinder", "box", "cube", "sphere", "cone", "block", "circle", "square", "rectangle"
+- Dimension mapping: Map "width", "wide", "diameter", "dia", "across" to diameter_mm field
+- Height mapping: Map "height", "tall", "high", "thick", "thickness" to height_mm field
 - For patterns, include type, count, and angle if specified
 - Pattern detection: Look for keywords like "array", "pattern", "circular", "linear", "repeat", "copy", "around", "in a circle", "in a line"
 - If no pattern is mentioned, set pattern to null

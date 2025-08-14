@@ -23,8 +23,9 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, validator
-from typing import Dict, Optional, Union, List
+from typing import Dict, Optional, Union, List, Any
 from sqlalchemy.orm import Session
+from sqlalchemy import desc
 
 # Import configuration
 from config import config
@@ -146,6 +147,14 @@ class InstructionRequest(BaseModel):
         return v.strip()
 
 
+class PatternInfo(BaseModel):
+    """
+    Pattern information for CAD operations.
+    """
+    type: Optional[str] = None  # "circular" or "linear"
+    count: Optional[int] = None
+    angle_deg: Optional[float] = None
+
 class ParsedParameters(BaseModel):
     """
     Parsed parameters extracted from natural language instruction.
@@ -160,12 +169,14 @@ class ParsedParameters(BaseModel):
         height_mm (Optional[float]): Height dimension in millimeters - null if not detected
         diameter_mm (Optional[float]): Diameter dimension in millimeters - null if not detected
         count (Optional[int]): Count for patterns or arrays - null if not detected
+        pattern (Optional[PatternInfo]): Pattern information if applicable - null if not detected
     """
     action: str
     shape: Optional[str] = None
     height_mm: Optional[float] = None
     diameter_mm: Optional[float] = None
     count: Optional[int] = None
+    pattern: Optional[PatternInfo] = None
 
 
 class InstructionResponse(BaseModel):
@@ -315,7 +326,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     count_patterns = [
         r'(?:count|number|qty|quantity)\s*(?:of\s*)?([0-9]+)',
         r'([0-9]+)\s*(?:times|copies|instances)',
-        r'(?:make|create)\s*([0-9]+)'
+        r'(?:make|create)\s*([0-9]+)',
+        r'([0-9]+)\s*(?:cylinder|cylinders|block|blocks|sphere|spheres|cone|cones|hole|holes|feature|features)'
     ]
     
     for pattern in count_patterns:
@@ -327,6 +339,42 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
             except (ValueError, IndexError):
                 continue
     
+    # Pattern extraction
+    pattern_info = None
+    if action == "pattern":
+        pattern_type = None
+        pattern_count = count  # Use the count we already extracted
+        pattern_angle = None
+        
+        # Detect pattern type
+        if any(word in instruction_lower for word in ["circle", "circular", "round", "around"]):
+            pattern_type = "circular"
+        elif any(word in instruction_lower for word in ["line", "linear", "row", "straight"]):
+            pattern_type = "linear"
+        
+        # Extract angle for circular patterns
+        if pattern_type == "circular":
+            angle_patterns = [
+                r'([0-9]*\.?[0-9]+)\s*(?:degree|degrees|deg|°)',
+                r'(?:angle|rotation)\s*(?:of\s*)?([0-9]*\.?[0-9]+)'
+            ]
+            for angle_pattern in angle_patterns:
+                match = re.search(angle_pattern, instruction_lower)
+                if match:
+                    try:
+                        pattern_angle = float(match.group(1))
+                        break
+                    except (ValueError, IndexError):
+                        continue
+        
+        # Create pattern info if we detected a pattern type
+        if pattern_type:
+            pattern_info = PatternInfo(
+                type=pattern_type,
+                count=pattern_count,
+                angle_deg=pattern_angle
+            )
+    
     # Always return consistent structure with all fields present
     # Missing/undetected values are explicitly set to None for consistent JSON shape
     return ParsedParameters(
@@ -334,7 +382,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         shape=shape,
         height_mm=height_mm,  # Always in millimeters (documented by *_mm suffix)
         diameter_mm=diameter_mm,  # Always in millimeters (documented by *_mm suffix)
-        count=count
+        count=count,
+        pattern=pattern_info
     )
 
 
