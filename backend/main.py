@@ -471,12 +471,10 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
                     "count": parsed_params.count,
                     "diameter_mm": parsed_params.diameter_mm,
                     "height_mm": parsed_params.height_mm,
-                    "pattern": None  # Rule-based parsing doesn't support patterns yet
+                    "shape": parsed_params.shape,  # Always include shape field (null if not detected)
+                    "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
                 }
             }
-            # Add shape info if available (rule-based specific)
-            if hasattr(parsed_params, 'shape') and parsed_params.shape:
-                parsed_result["parameters"]["shape"] = parsed_params.shape
         
         # Log parsing results
         logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
