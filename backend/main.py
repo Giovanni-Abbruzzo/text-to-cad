@@ -129,7 +129,9 @@ async def root() -> Dict[str, str]:
         "health": "/health",
         "endpoints": {
             "process_instruction": "/process_instruction",
+            "dry_run": "/dry_run",
             "generate_model": "/generate_model",
+            "commands": "/commands",
             "config": "/config"
         }
     }
@@ -210,12 +212,16 @@ class InstructionResponse(BaseModel):
     Response model containing original instruction and parsed parameters.
     
     Attributes:
+        schema_version (str): API schema version for contract stability
         instruction (str): Original instruction text
         source (str): Parsing source - "ai" or "rule"
+        plan (List[str]): Human-readable plan steps describing what will be done
         parsed_parameters (Dict): Extracted CAD parameters (always present, with nulls where unknown)
     """
+    schema_version: str = "1.0"
     instruction: str
     source: str  # "ai" or "rule"
+    plan: List[str]
     parsed_parameters: Dict
 
 
@@ -265,6 +271,140 @@ class CommandOut(BaseModel):
 
 
 # Parsing Logic
+def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
+    """
+    Generate a human-readable plan from parsed CAD parameters.
+    
+    Converts structured parameters into descriptive action steps that explain
+    what the CAD operation will do. Useful for preview/dry-run scenarios.
+    
+    Args:
+        parsed_result (dict): Parsed result with 'action' and 'parameters' keys
+        
+    Returns:
+        List[str]: List of human-readable plan steps
+        
+    Example:
+        Input: {"action": "create_hole", "parameters": {"diameter_mm": 6, "count": 4}}
+        Output: ["Create 4 holes with Ø6 mm diameter"]
+    """
+    action = parsed_result.get("action", "unknown")
+    params = parsed_result.get("parameters", {})
+    plan = []
+    
+    # Extract common parameters
+    shape = params.get("shape")
+    diameter_mm = params.get("diameter_mm")
+    height_mm = params.get("height_mm")
+    count = params.get("count")
+    pattern = params.get("pattern")
+    
+    # Generate plan based on action type
+    if action == "extrude":
+        if shape == "cylinder":
+            desc = "Extrude cylinder"
+            if diameter_mm:
+                desc += f" Ø{diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        elif shape == "block":
+            desc = "Extrude rectangular block"
+            if diameter_mm:  # Using diameter as width for blocks
+                desc += f" {diameter_mm} mm wide"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        else:
+            desc = "Extrude feature"
+            if height_mm:
+                desc += f" {height_mm} mm height"
+            plan.append(desc)
+    
+    elif action == "create_hole":
+        desc = "Create"
+        if count and count > 1:
+            desc += f" {count} holes"
+        else:
+            desc += " hole"
+        if diameter_mm:
+            desc += f" Ø{diameter_mm} mm"
+        plan.append(desc)
+        
+        # Add pattern information if present
+        if pattern and pattern.get("type"):
+            pattern_type = pattern.get("type")
+            pattern_count = pattern.get("count", count)
+            if pattern_type == "circular":
+                pattern_desc = f"Arrange in circular pattern"
+                if pattern_count:
+                    pattern_desc += f" ({pattern_count} instances)"
+                if pattern.get("angle_deg"):
+                    pattern_desc += f" at {pattern.get('angle_deg')}° spacing"
+                plan.append(pattern_desc)
+            elif pattern_type == "linear":
+                pattern_desc = f"Arrange in linear pattern"
+                if pattern_count:
+                    pattern_desc += f" ({pattern_count} instances)"
+                plan.append(pattern_desc)
+    
+    elif action == "pattern":
+        desc = "Create pattern"
+        if count:
+            desc += f" of {count} features"
+        if pattern and pattern.get("type"):
+            desc += f" in {pattern.get('type')} arrangement"
+        plan.append(desc)
+    
+    elif action == "fillet":
+        desc = "Apply fillet"
+        if diameter_mm:  # Using diameter as radius for fillets
+            desc += f" with {diameter_mm/2} mm radius"
+        plan.append(desc)
+    
+    elif action == "create_feature":
+        # Generic feature creation
+        if shape == "cylinder":
+            desc = "Create cylinder"
+            if diameter_mm:
+                desc += f" Ø{diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        elif shape:
+            desc = f"Create {shape}"
+            if diameter_mm:
+                desc += f" {diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm"
+            plan.append(desc)
+        else:
+            # Check if it's a plate with holes pattern
+            if count and count > 1:
+                desc = f"Create base plate"
+                if height_mm:
+                    desc += f" {height_mm} mm thick"
+                plan.append(desc)
+                
+                hole_desc = f"Pattern {count} holes"
+                if diameter_mm:
+                    hole_desc += f" Ø{diameter_mm} mm"
+                if pattern and pattern.get("type"):
+                    hole_desc += f" in {pattern.get('type')} arrangement"
+                plan.append(hole_desc)
+            else:
+                plan.append("Create CAD feature")
+    
+    else:
+        plan.append(f"Execute {action} operation")
+    
+    # If no plan was generated, provide a fallback
+    if not plan:
+        plan.append("Process CAD instruction")
+    
+    return plan
+
+
 def parse_instruction_internal(text: str, use_ai: bool) -> dict:
     """
     Internal helper function to parse natural language CAD instructions.
@@ -585,10 +725,15 @@ Mount /outputs if not already.
         
         logger.info(f"Command saved successfully with ID: {db_command.id} (source: {source})")
         
+        # Generate human-readable plan
+        plan = generate_plan_from_parsed(parsed_result)
+        
         # Create normalized response
         response = InstructionResponse(
+            schema_version="1.0",
             instruction=request.instruction,
             source=source,
+            plan=plan,
             parsed_parameters=parsed_result
         )
         
@@ -602,6 +747,89 @@ Mount /outputs if not already.
         raise HTTPException(
             status_code=500,
             detail=f"Internal error processing instruction: {str(e)}"
+        )
+
+
+@app.post("/dry_run")
+async def dry_run_instruction(request: InstructionRequest) -> InstructionResponse:
+    """
+    Preview CAD instruction parsing without executing or saving to database.
+    
+    This endpoint performs a "dry run" of instruction parsing, returning the same
+    structured response as /process_instruction but WITHOUT:
+    - Saving to the database
+    - Generating actual geometry
+    - Creating any side effects
+    
+    Perfect for:
+    - Previewing what will happen before execution
+    - Validating instruction syntax
+    - Testing parsing logic (AI or rule-based)
+    - SolidWorks Add-In contract validation
+    
+    The response includes a human-readable plan array that describes the steps
+    that would be executed if this were a real operation.
+    
+    Args:
+        request (InstructionRequest): Request containing instruction text and use_ai flag
+        
+    Returns:
+        InstructionResponse: Preview response with schema_version, source, plan, and parsed_parameters
+        
+    Raises:
+        HTTPException: 422 if instruction validation fails
+        
+    Example:
+        Input: {"instruction": "add 4 holes on the top face", "use_ai": false}
+        Output: {
+            "schema_version": "1.0",
+            "instruction": "add 4 holes on the top face",
+            "source": "rule",
+            "plan": [
+                "Create 4 holes",
+                "Arrange in circular pattern (4 instances)"
+            ],
+            "parsed_parameters": {
+                "action": "create_hole",
+                "parameters": {
+                    "count": 4,
+                    "diameter_mm": null,
+                    "height_mm": null,
+                    "shape": null,
+                    "pattern": null
+                }
+            }
+        }
+    """
+    # Log incoming request
+    logger.info(f"Dry run for instruction: '{request.instruction}' (use_ai={request.use_ai})")
+    
+    try:
+        # Parse instruction using the shared helper (no database interaction)
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
+        
+        # Generate human-readable plan
+        plan = generate_plan_from_parsed(parsed_result)
+        
+        # Create response (no database save)
+        response = InstructionResponse(
+            schema_version="1.0",
+            instruction=request.instruction,
+            source=source,
+            plan=plan,
+            parsed_parameters=parsed_result
+        )
+        
+        logger.info(f"Dry run complete - Source: {source}, Plan steps: {len(plan)}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in dry run for instruction '{request.instruction}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during dry run: {str(e)}"
         )
 
 

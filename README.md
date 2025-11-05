@@ -32,7 +32,7 @@ Create `.env` files for configuration:
 
 **Frontend** (`frontend/.env`):
 ```
-VITE_API_BASE=http://localhost:8000
+VITE_API_BASE=http://localhost:8000/docs
 ```
 
 **Backend** (`backend/.env`) - Optional for AI features:
@@ -122,7 +122,10 @@ Perfect for showcasing the system:
 
 - **`GET /health`** - Health check endpoint
 - **`GET /`** - API information and available endpoints
-- **`POST /process_instruction`** - Process natural language CAD instructions
+- **`POST /process_instruction`** - Process natural language CAD instructions and save to database
+- **`POST /dry_run`** - Preview instruction parsing without saving (plan preview)
+- **`POST /generate_model`** - Generate 3D CAD models and export files
+- **`GET /commands`** - Retrieve command history
 - **`GET /config`** - View current configuration (excludes sensitive data)
 - **`GET /docs`** - Interactive API documentation (Swagger UI)
 
@@ -156,6 +159,282 @@ curl -X POST "http://localhost:8000/process_instruction" \
 - **Validation**: Instructions must be at least 3 characters long and non-empty
 - **Response Format**: Always returns consistent JSON shape with `null` for undetected parameters
 - **Configuration**: Optional `.env` file support (see `backend/.env.example`)
+
+---
+
+## API Contract & Preview Plan
+
+The Text-to-CAD backend provides a **stable JSON contract** designed for integration with CAD plugins like SolidWorks Add-Ins and Fusion360 scripts. All endpoints return consistent, versioned schemas with predictable field structures.
+
+### Core Endpoints
+
+#### POST /process_instruction
+Process natural language CAD instructions, save to database, and return parsed parameters with execution plan.
+
+**Request Body:**
+```json
+{
+  "instruction": "add 4 holes on the top face",
+  "use_ai": false
+}
+```
+
+**Request Fields:**
+- `instruction` (string, required): Natural language CAD instruction (minimum 3 characters)
+- `use_ai` (boolean, optional): Use AI parsing if `true` and API key configured, otherwise rule-based (default: `false`)
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "instruction": "add 4 holes on the top face",
+  "source": "rule",
+  "plan": [
+    "Create 4 holes",
+    "Arrange in circular pattern (4 instances)"
+  ],
+  "parsed_parameters": {
+    "action": "create_hole",
+    "parameters": {
+      "count": 4,
+      "diameter_mm": null,
+      "height_mm": null,
+      "shape": null,
+      "pattern": null
+    }
+  }
+}
+```
+
+**Response Fields:**
+- `schema_version` (string): API contract version for stability tracking (currently `"1.0"`)
+- `instruction` (string): Echo of the original instruction
+- `source` (string): Parsing method used - `"ai"` (OpenAI) or `"rule"` (regex-based)
+- `plan` (array of strings): Human-readable steps describing what will be executed
+- `parsed_parameters` (object): Structured CAD parameters
+  - `action` (string): CAD operation type (`"extrude"`, `"create_hole"`, `"fillet"`, `"pattern"`, `"create_feature"`)
+  - `parameters` (object): Extracted parameters (all fields always present, `null` if not detected)
+    - `count` (number | null): Number of features/instances
+    - `diameter_mm` (number | null): Diameter in millimeters
+    - `height_mm` (number | null): Height/thickness in millimeters
+    - `shape` (string | null): Shape type (`"cylinder"`, `"block"`, `"sphere"`, etc.)
+    - `pattern` (object | null): Pattern information for arrays
+      - `type` (string | null): Pattern type (`"circular"`, `"linear"`)
+      - `count` (number | null): Number of pattern instances
+      - `angle_deg` (number | null): Angular spacing for circular patterns
+
+**Error Response (422 Unprocessable Entity):**
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "instruction"],
+      "msg": "Instruction must be at least 3 characters long",
+      "type": "value_error"
+    }
+  ]
+}
+```
+
+**Side Effects:**
+- Saves command to database with timestamp
+- Creates database record accessible via `GET /commands`
+
+---
+
+#### POST /dry_run
+Preview instruction parsing **without** saving to database or executing operations. Perfect for validation and plan preview.
+
+**Request Body:**
+```json
+{
+  "instruction": "create a 25mm diameter cylinder 40mm tall",
+  "use_ai": false
+}
+```
+
+**Request Fields:**
+- Same as `/process_instruction`
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "instruction": "create a 25mm diameter cylinder 40mm tall",
+  "source": "rule",
+  "plan": [
+    "Create cylinder Ø25.0 mm × 40.0 mm height"
+  ],
+  "parsed_parameters": {
+    "action": "create_feature",
+    "parameters": {
+      "count": null,
+      "diameter_mm": 25.0,
+      "height_mm": 40.0,
+      "shape": "cylinder",
+      "pattern": null
+    }
+  }
+}
+```
+
+**Response Fields:**
+- Identical structure to `/process_instruction`
+- Same `schema_version`, `source`, `plan`, and `parsed_parameters` format
+
+**Key Differences from /process_instruction:**
+- ❌ Does NOT save to database
+- ❌ Does NOT generate geometry
+- ❌ Does NOT create any side effects
+- ✅ Perfect for preview/validation workflows
+- ✅ Ideal for SolidWorks Add-In contract testing
+
+**Use Cases:**
+- Preview what will happen before execution
+- Validate instruction syntax without side effects
+- Test AI vs. rule-based parsing differences
+- SolidWorks Add-In contract validation
+- Debugging parsing logic
+
+---
+
+### Field Definitions
+
+#### schema_version
+- **Type**: String constant
+- **Current Value**: `"1.0"`
+- **Purpose**: Enables clients to detect API contract changes
+- **Stability**: Will only change when response structure changes in breaking ways
+
+#### source
+- **Type**: String enum
+- **Values**: `"ai"` | `"rule"`
+- **Meaning**:
+  - `"ai"`: Parsed using OpenAI GPT model (requires `OPENAI_API_KEY` and `use_ai=true`)
+  - `"rule"`: Parsed using regex-based rule engine (fallback or default)
+
+#### plan
+- **Type**: Array of strings
+- **Purpose**: Human-readable description of execution steps
+- **Format**: Each string is a complete sentence describing one operation
+- **Examples**:
+  - `["Extrude cylinder Ø20 mm × 30 mm height"]`
+  - `["Create 6 holes Ø5 mm", "Arrange in circular pattern (6 instances)"]`
+  - `["Create base plate 10 mm thick", "Pattern 4 holes Ø6 mm in circular arrangement"]`
+
+#### parsed_parameters
+- **Type**: Object with consistent structure
+- **Guarantee**: All fields always present (never omitted)
+- **Null Handling**: Undetected/unspecified parameters are explicitly `null`
+- **Unit Convention**: All numeric dimensions in millimeters (indicated by `_mm` suffix)
+
+---
+
+### Example Workflows
+
+#### Workflow 1: Preview then Execute
+```bash
+# Step 1: Preview with dry run
+curl -X POST "http://localhost:8000/dry_run" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "extrude 20mm cylinder", "use_ai": false}'
+
+# Step 2: Review the plan array and parsed_parameters
+
+# Step 3: Execute if satisfied
+curl -X POST "http://localhost:8000/process_instruction" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "extrude 20mm cylinder", "use_ai": false}'
+```
+
+#### Workflow 2: AI vs. Rule Comparison
+```bash
+# Compare AI parsing
+curl -X POST "http://localhost:8000/dry_run" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "make 6 holes in a circle", "use_ai": true}'
+
+# Compare rule-based parsing
+curl -X POST "http://localhost:8000/dry_run" \
+     -H "Content-Type: application/json" \
+     -d '{"instruction": "make 6 holes in a circle", "use_ai": false}'
+```
+
+#### Workflow 3: SolidWorks Add-In Integration
+```vb
+' VBA/VB.NET example for SolidWorks Add-In
+Dim instruction As String
+instruction = "create 4 mounting holes 6mm diameter"
+
+' Step 1: Dry run to validate
+Dim dryRunResponse As String
+dryRunResponse = HttpPost("http://localhost:8000/dry_run", _
+    "{""instruction"":""" & instruction & """,""use_ai"":false}")
+
+' Step 2: Parse response and show plan to user
+Dim plan As String
+plan = ExtractPlanFromJson(dryRunResponse)
+MsgBox "Will execute: " & plan
+
+' Step 3: Execute if user confirms
+If MsgBox("Proceed?", vbYesNo) = vbYes Then
+    Dim response As String
+    response = HttpPost("http://localhost:8000/process_instruction", _
+        "{""instruction"":""" & instruction & """,""use_ai"":false}")
+    
+    ' Step 4: Use parsed_parameters to drive SolidWorks API
+    Dim params As Object
+    Set params = ParseJsonParameters(response)
+    CreateHolesInSolidWorks params
+End If
+```
+
+---
+
+### Validation Rules
+
+**Instruction Validation:**
+- ❌ Empty strings rejected (422 error)
+- ❌ Whitespace-only strings rejected (422 error)
+- ❌ Strings < 3 characters rejected (422 error)
+- ✅ Minimum valid: `"abc"` (3 characters)
+
+**Error Response Format:**
+All validation errors return HTTP 422 with Pydantic validation details:
+```json
+{
+  "detail": [
+    {
+      "loc": ["body", "instruction"],
+      "msg": "Instruction cannot be blank or empty",
+      "type": "value_error"
+    }
+  ]
+}
+```
+
+---
+
+### Contract Stability Guarantees
+
+**What Will NOT Change (Stable):**
+- ✅ Field names (`schema_version`, `source`, `plan`, `parsed_parameters`)
+- ✅ Field types (string, array, object, null)
+- ✅ Presence of fields (all fields always present)
+- ✅ Null semantics (null = not detected/not applicable)
+- ✅ Unit convention (millimeters for all dimensions)
+
+**What MAY Change (Versioned):**
+- 🔄 New fields may be added (clients should ignore unknown fields)
+- 🔄 `schema_version` will increment on breaking changes
+- 🔄 New action types may be added to `action` enum
+- 🔄 Plan format may become more detailed
+
+**Migration Strategy:**
+- Check `schema_version` field in client code
+- Handle unknown `schema_version` values gracefully
+- Ignore unknown fields in responses
+- Test with `/dry_run` before deploying changes
 
 ## Persistence & History (Sprint 3)
 
