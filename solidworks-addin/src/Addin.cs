@@ -2,6 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
+using SolidWorks.Interop.swpublished;
 
 namespace TextToCad.SolidWorksAddin
 {

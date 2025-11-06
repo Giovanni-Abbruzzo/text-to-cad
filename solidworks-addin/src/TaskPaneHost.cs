@@ -68,19 +68,29 @@ namespace TextToCad.SolidWorksAddin
 
                 // Add the WinForms control to the Task Pane
                 // The control must be a UserControl derived class
-                bool success = taskPaneView.AddControl(
-                    taskPaneControl.GetType().Assembly.Location,
-                    taskPaneControl.GetType().FullName,
-                    ""  // Optional initialization string
-                );
+                // Note: AddControl for SolidWorks requires specific parameters
+                // Try using the full assembly path
+                string assemblyPath = taskPaneControl.GetType().Assembly.Location;
+                string controlTypeName = taskPaneControl.GetType().FullName;
+                
+                Logger.Info($"Adding control: Assembly={assemblyPath}, Type={controlTypeName}");
+                
+                object result = taskPaneView.AddControl(assemblyPath, controlTypeName);
 
-                if (!success)
+                if (result == null)
                 {
-                    throw new Exception("Failed to add control to Task Pane");
+                    Logger.Error("AddControl returned null - trying alternative approach");
+                    
+                    // Alternative: Create the control instance and get its handle
+                    taskPaneView.DisplayWindowFromHandle(taskPaneControl.Handle.ToInt32());
+                    Logger.Info("Using DisplayWindowFromHandle approach");
                 }
-
-                // Make the Task Pane visible
-                taskPaneView.DisplayWindowFromHandle(taskPaneControl.Handle.ToInt32());
+                else
+                {
+                    Logger.Info("Control added successfully via AddControl");
+                    // Make the Task Pane visible
+                    taskPaneView.DisplayWindowFromHandle(taskPaneControl.Handle.ToInt32());
+                }
 
                 Logger.Info("Task Pane created and displayed successfully");
             }

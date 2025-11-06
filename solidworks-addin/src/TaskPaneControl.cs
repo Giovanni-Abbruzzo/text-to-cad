@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TextToCad.SolidWorksAddin.Models;
 
@@ -9,6 +10,7 @@ namespace TextToCad.SolidWorksAddin
     /// Main UI control for the Task Pane.
     /// Provides interface for entering instructions and viewing results.
     /// </summary>
+    [ComVisible(true)]
     public partial class TaskPaneControl : UserControl
     {
         #region Private Fields
@@ -275,7 +277,7 @@ namespace TextToCad.SolidWorksAddin
             AppendLog($"═══════════════════════════════════", Color.DarkBlue);
             AppendLog($"Source: {source} parsing", Color.DarkGray);
             AppendLog($"Schema Version: {response.SchemaVersion}", Color.DarkGray);
-            AppendLog("");
+            AppendLog("", Color.Black);
 
             // Display plan
             AppendLog("📋 PLAN:", Color.DarkBlue);
@@ -293,7 +295,7 @@ namespace TextToCad.SolidWorksAddin
                 AppendLog("  (No plan available)", Color.Gray);
             }
 
-            AppendLog("");
+            AppendLog("", Color.Black);
 
             // Display parsed parameters
             if (response.ParsedParameters != null)
