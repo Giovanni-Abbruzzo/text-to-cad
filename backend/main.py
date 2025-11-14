@@ -22,6 +22,7 @@ import os
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, validator
 from typing import Dict, Optional, Union, List, Any
 from sqlalchemy.orm import Session
@@ -40,12 +41,33 @@ from llm import parse_instruction_with_ai, LLMParseError
 # Import job runner functionality
 from jobs import start_job, get_job
 
-# Configure logging
+# Configure logging first (needed for geometry import error handling)
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL.upper()),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("text-to-cad-backend")
+
+# Import geometry building and export functionality (optional for development)
+try:
+    from geometry.model_builder import dispatch_build
+    from geometry.exporter import export_solid, ensure_outputs_directory
+    GEOMETRY_AVAILABLE = True
+    logger.info("Geometry modules loaded successfully")
+except ImportError as e:
+    logger.warning(f"Geometry modules not available: {e}")
+    logger.warning("CadQuery dependencies may not be installed. /generate_model endpoint will be disabled.")
+    GEOMETRY_AVAILABLE = False
+    
+    # Define dummy functions to prevent import errors
+    def dispatch_build(action, params):
+        raise HTTPException(status_code=503, detail="Geometry functionality not available - CadQuery dependencies not installed")
+    
+    def export_solid(solid, kind="step", prefix="model"):
+        raise HTTPException(status_code=503, detail="Export functionality not available - CadQuery dependencies not installed")
+    
+    def ensure_outputs_directory():
+        raise HTTPException(status_code=503, detail="Export functionality not available - CadQuery dependencies not installed")
 
 # Initialize FastAPI application
 app = FastAPI(
@@ -77,6 +99,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Mount static files for downloadable CAD outputs
+app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+
 
 @app.get("/health")
 async def health_check() -> Dict[str, str]:
@@ -104,6 +129,9 @@ async def root() -> Dict[str, str]:
         "health": "/health",
         "endpoints": {
             "process_instruction": "/process_instruction",
+            "dry_run": "/dry_run",
+            "generate_model": "/generate_model",
+            "commands": "/commands",
             "config": "/config"
         }
     }
@@ -184,12 +212,16 @@ class InstructionResponse(BaseModel):
     Response model containing original instruction and parsed parameters.
     
     Attributes:
+        schema_version (str): API schema version for contract stability
         instruction (str): Original instruction text
         source (str): Parsing source - "ai" or "rule"
+        plan (List[str]): Human-readable plan steps describing what will be done
         parsed_parameters (Dict): Extracted CAD parameters (always present, with nulls where unknown)
     """
+    schema_version: str = "1.0"
     instruction: str
     source: str  # "ai" or "rule"
+    plan: List[str]
     parsed_parameters: Dict
 
 
@@ -239,6 +271,222 @@ class CommandOut(BaseModel):
 
 
 # Parsing Logic
+def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
+    """
+    Generate a human-readable plan from parsed CAD parameters.
+    
+    Converts structured parameters into descriptive action steps that explain
+    what the CAD operation will do. Useful for preview/dry-run scenarios.
+    
+    Args:
+        parsed_result (dict): Parsed result with 'action' and 'parameters' keys
+        
+    Returns:
+        List[str]: List of human-readable plan steps
+        
+    Example:
+        Input: {"action": "create_hole", "parameters": {"diameter_mm": 6, "count": 4}}
+        Output: ["Create 4 holes with Ø6 mm diameter"]
+    """
+    action = parsed_result.get("action", "unknown")
+    params = parsed_result.get("parameters", {})
+    plan = []
+    
+    # Extract common parameters
+    shape = params.get("shape")
+    diameter_mm = params.get("diameter_mm")
+    height_mm = params.get("height_mm")
+    count = params.get("count")
+    pattern = params.get("pattern")
+    
+    # Generate plan based on action type
+    if action == "extrude":
+        if shape == "cylinder":
+            desc = "Extrude cylinder"
+            if diameter_mm:
+                desc += f" Ø{diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        elif shape == "block":
+            desc = "Extrude rectangular block"
+            if diameter_mm:  # Using diameter as width for blocks
+                desc += f" {diameter_mm} mm wide"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        else:
+            desc = "Extrude feature"
+            if height_mm:
+                desc += f" {height_mm} mm height"
+            plan.append(desc)
+    
+    elif action == "create_hole":
+        desc = "Create"
+        if count and count > 1:
+            desc += f" {count} holes"
+        else:
+            desc += " hole"
+        if diameter_mm:
+            desc += f" Ø{diameter_mm} mm"
+        plan.append(desc)
+        
+        # Add pattern information if present
+        if pattern and pattern.get("type"):
+            pattern_type = pattern.get("type")
+            pattern_count = pattern.get("count", count)
+            if pattern_type == "circular":
+                pattern_desc = f"Arrange in circular pattern"
+                if pattern_count:
+                    pattern_desc += f" ({pattern_count} instances)"
+                if pattern.get("angle_deg"):
+                    pattern_desc += f" at {pattern.get('angle_deg')}° spacing"
+                plan.append(pattern_desc)
+            elif pattern_type == "linear":
+                pattern_desc = f"Arrange in linear pattern"
+                if pattern_count:
+                    pattern_desc += f" ({pattern_count} instances)"
+                plan.append(pattern_desc)
+    
+    elif action == "pattern":
+        desc = "Create pattern"
+        if count:
+            desc += f" of {count} features"
+        if pattern and pattern.get("type"):
+            desc += f" in {pattern.get('type')} arrangement"
+        plan.append(desc)
+    
+    elif action == "fillet":
+        desc = "Apply fillet"
+        if diameter_mm:  # Using diameter as radius for fillets
+            desc += f" with {diameter_mm/2} mm radius"
+        plan.append(desc)
+    
+    elif action == "create_feature":
+        # Generic feature creation
+        if shape == "cylinder":
+            desc = "Create cylinder"
+            if diameter_mm:
+                desc += f" Ø{diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        elif shape:
+            desc = f"Create {shape}"
+            if diameter_mm:
+                desc += f" {diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm"
+            plan.append(desc)
+        else:
+            # Check if it's a plate with holes pattern
+            if count and count > 1:
+                desc = f"Create base plate"
+                if height_mm:
+                    desc += f" {height_mm} mm thick"
+                plan.append(desc)
+                
+                hole_desc = f"Pattern {count} holes"
+                if diameter_mm:
+                    hole_desc += f" Ø{diameter_mm} mm"
+                if pattern and pattern.get("type"):
+                    hole_desc += f" in {pattern.get('type')} arrangement"
+                plan.append(hole_desc)
+            else:
+                plan.append("Create CAD feature")
+    
+    else:
+        plan.append(f"Execute {action} operation")
+    
+    # If no plan was generated, provide a fallback
+    if not plan:
+        plan.append("Process CAD instruction")
+    
+    return plan
+
+
+def parse_instruction_internal(text: str, use_ai: bool) -> dict:
+    """
+    Internal helper function to parse natural language CAD instructions.
+    
+    This function encapsulates the parsing logic that can be used by both
+    /process_instruction and /generate_model endpoints. It handles AI parsing
+    attempts with fallback to rule-based parsing.
+    
+    Parsing Logic:
+    - If use_ai=True and OPENAI_API_KEY is set: attempts AI parsing via OpenAI
+    - If AI fails or use_ai=False: falls back to rule-based parsing
+    - Always returns consistent normalized format with source indication
+    
+    Args:
+        text (str): Natural language instruction to parse
+        use_ai (bool): Whether to attempt AI parsing first
+        
+    Returns:
+        dict: Parsed result with structure:
+            {
+                "result": {
+                    "action": str,
+                    "parameters": {
+                        "count": Optional[int],
+                        "diameter_mm": Optional[float],
+                        "height_mm": Optional[float],
+                        "shape": Optional[str],
+                        "pattern": Optional[dict]
+                    }
+                },
+                "source": str  # "ai" or "rule"
+            }
+    """
+    logger.info(f"Parsing instruction: '{text}' (use_ai={use_ai})")
+    
+    parsed_result = None
+    source = "rule"  # Default to rule-based
+    
+    # Try AI parsing if requested and API key is available
+    if use_ai and os.getenv("OPENAI_API_KEY"):
+        try:
+            logger.info("Attempting AI parsing with OpenAI")
+            parsed_result = parse_instruction_with_ai(text)
+            source = "ai"
+            logger.info(f"AI parsing successful: {parsed_result}")
+        except LLMParseError as e:
+            logger.warning(f"AI parsing failed, falling back to rules: {e}")
+            parsed_result = None  # Will trigger fallback
+        except Exception as e:
+            logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
+            parsed_result = None  # Will trigger fallback
+    elif use_ai:
+        logger.info("AI requested but OPENAI_API_KEY not configured, using rule-based parsing")
+    
+    # Fallback to rule-based parsing if AI failed or wasn't used
+    if parsed_result is None:
+        logger.info("Using rule-based parsing")
+        parsed_params = parse_cad_instruction(text)
+        source = "rule"
+        
+        # Convert rule-based result to normalized format
+        parsed_result = {
+            "action": parsed_params.action,
+            "parameters": {
+                "count": parsed_params.count,
+                "diameter_mm": parsed_params.diameter_mm,
+                "height_mm": parsed_params.height_mm,
+                "shape": parsed_params.shape,  # Always include shape field (null if not detected)
+                "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
+            }
+        }
+    
+    # Log parsing results
+    logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
+               f"Parameters: {parsed_result.get('parameters')}")
+    
+    return {
+        "result": parsed_result,
+        "source": source
+    }
+
+
 def parse_cad_instruction(instruction: str) -> ParsedParameters:
     """
     Parse natural language CAD instruction into structured parameters.
@@ -401,7 +649,22 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     - If AI fails or use_ai=False: falls back to rule-based parsing
     - Always returns consistent response format with source indication
     
-    Validation:
+    Validation:Prompt S8-B (endpoint)
+
+Add POST /generate_model with body:
+
+{ "instruction": "...", "use_ai": false, "export_step": true, "export_stl": false }
+
+
+Steps:
+
+Parse via parse_instruction_internal.
+
+dispatch_build(action, params) → CadQuery solid.
+
+Export STEP/STL based on flags; return { step_url, stl_url, summary }.
+
+Mount /outputs if not already.
     - Instructions must be at least 3 characters long and non-empty
     - Returns 422 with clear error message for invalid instructions
     
@@ -439,46 +702,10 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     logger.info(f"Processing instruction: '{request.instruction}' (use_ai={request.use_ai})")
     
     try:
-        parsed_result = None
-        source = "rule"  # Default to rule-based
-        
-        # Try AI parsing if requested and API key is available
-        if request.use_ai and os.getenv("OPENAI_API_KEY"):
-            try:
-                logger.info("Attempting AI parsing with OpenAI")
-                parsed_result = parse_instruction_with_ai(request.instruction)
-                source = "ai"
-                logger.info(f"AI parsing successful: {parsed_result}")
-            except LLMParseError as e:
-                logger.warning(f"AI parsing failed, falling back to rules: {e}")
-                parsed_result = None  # Will trigger fallback
-            except Exception as e:
-                logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
-                parsed_result = None  # Will trigger fallback
-        elif request.use_ai:
-            logger.info("AI requested but OPENAI_API_KEY not configured, using rule-based parsing")
-        
-        # Fallback to rule-based parsing if AI failed or wasn't used
-        if parsed_result is None:
-            logger.info("Using rule-based parsing")
-            parsed_params = parse_cad_instruction(request.instruction)
-            source = "rule"
-            
-            # Convert rule-based result to normalized format
-            parsed_result = {
-                "action": parsed_params.action,
-                "parameters": {
-                    "count": parsed_params.count,
-                    "diameter_mm": parsed_params.diameter_mm,
-                    "height_mm": parsed_params.height_mm,
-                    "shape": parsed_params.shape,  # Always include shape field (null if not detected)
-                    "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
-                }
-            }
-        
-        # Log parsing results
-        logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
-                   f"Parameters: {parsed_result.get('parameters')}")
+        # Use the refactored parsing helper
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
         
         # Serialize parameters for database storage
         parameters_json = json.dumps(parsed_result.get("parameters", {}))
@@ -498,10 +725,15 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
         
         logger.info(f"Command saved successfully with ID: {db_command.id} (source: {source})")
         
+        # Generate human-readable plan
+        plan = generate_plan_from_parsed(parsed_result)
+        
         # Create normalized response
         response = InstructionResponse(
+            schema_version="1.0",
             instruction=request.instruction,
             source=source,
+            plan=plan,
             parsed_parameters=parsed_result
         )
         
@@ -515,6 +747,89 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
         raise HTTPException(
             status_code=500,
             detail=f"Internal error processing instruction: {str(e)}"
+        )
+
+
+@app.post("/dry_run")
+async def dry_run_instruction(request: InstructionRequest) -> InstructionResponse:
+    """
+    Preview CAD instruction parsing without executing or saving to database.
+    
+    This endpoint performs a "dry run" of instruction parsing, returning the same
+    structured response as /process_instruction but WITHOUT:
+    - Saving to the database
+    - Generating actual geometry
+    - Creating any side effects
+    
+    Perfect for:
+    - Previewing what will happen before execution
+    - Validating instruction syntax
+    - Testing parsing logic (AI or rule-based)
+    - SolidWorks Add-In contract validation
+    
+    The response includes a human-readable plan array that describes the steps
+    that would be executed if this were a real operation.
+    
+    Args:
+        request (InstructionRequest): Request containing instruction text and use_ai flag
+        
+    Returns:
+        InstructionResponse: Preview response with schema_version, source, plan, and parsed_parameters
+        
+    Raises:
+        HTTPException: 422 if instruction validation fails
+        
+    Example:
+        Input: {"instruction": "add 4 holes on the top face", "use_ai": false}
+        Output: {
+            "schema_version": "1.0",
+            "instruction": "add 4 holes on the top face",
+            "source": "rule",
+            "plan": [
+                "Create 4 holes",
+                "Arrange in circular pattern (4 instances)"
+            ],
+            "parsed_parameters": {
+                "action": "create_hole",
+                "parameters": {
+                    "count": 4,
+                    "diameter_mm": null,
+                    "height_mm": null,
+                    "shape": null,
+                    "pattern": null
+                }
+            }
+        }
+    """
+    # Log incoming request
+    logger.info(f"Dry run for instruction: '{request.instruction}' (use_ai={request.use_ai})")
+    
+    try:
+        # Parse instruction using the shared helper (no database interaction)
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
+        
+        # Generate human-readable plan
+        plan = generate_plan_from_parsed(parsed_result)
+        
+        # Create response (no database save)
+        response = InstructionResponse(
+            schema_version="1.0",
+            instruction=request.instruction,
+            source=source,
+            plan=plan,
+            parsed_parameters=parsed_result
+        )
+        
+        logger.info(f"Dry run complete - Source: {source}, Plan steps: {len(plan)}")
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in dry run for instruction '{request.instruction}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error during dry run: {str(e)}"
         )
 
 
@@ -643,6 +958,60 @@ async def get_config() -> Dict:
 
 
 # Job Management Endpoints
+class GenerateModelRequest(BaseModel):
+    """
+    Request model for generating CAD models with file exports.
+    
+    Attributes:
+        instruction (str): Natural language instruction for CAD operation
+        use_ai (bool): Whether to use AI/LLM for parsing (default: False)
+        export_step (bool): Whether to export STEP file (default: True)
+        export_stl (bool): Whether to export STL file (default: False)
+    """
+    instruction: str
+    use_ai: bool = False
+    export_step: bool = True
+    export_stl: bool = False
+    
+    @validator('instruction')
+    def validate_instruction(cls, v):
+        """
+        Validate that instruction is not blank or too short.
+        
+        Args:
+            v (str): The instruction string to validate
+            
+        Returns:
+            str: The validated instruction
+            
+        Raises:
+            ValueError: If instruction is blank, too short, or only whitespace
+        """
+        if not v or not v.strip():
+            raise ValueError("Instruction cannot be blank")
+        if len(v.strip()) < 3:
+            raise ValueError("Instruction must be at least 3 characters long")
+        return v.strip()
+
+
+class GenerateModelResponse(BaseModel):
+    """
+    Response model for generated CAD models with download links.
+    
+    Attributes:
+        instruction (str): Original instruction text
+        source (str): Parsing source - "ai" or "rule"
+        step_url (Optional[str]): Download URL for STEP file if exported
+        stl_url (Optional[str]): Download URL for STL file if exported
+        summary (str): Summary of the generated model and operations performed
+    """
+    instruction: str
+    source: str
+    step_url: Optional[str] = None
+    stl_url: Optional[str] = None
+    summary: str
+
+
 class JobRequest(BaseModel):
     """
     Request model for starting a new job.
@@ -651,6 +1020,170 @@ class JobRequest(BaseModel):
         command_id (Optional[int]): ID of a saved command to associate with this job
     """
     command_id: Optional[int] = None
+
+
+@app.post("/generate_model")
+async def generate_model(request: GenerateModelRequest) -> GenerateModelResponse:
+    """
+    Generate CAD model from natural language instruction and export to files.
+    
+    This endpoint processes a natural language instruction, builds a 3D CAD model,
+    and exports it to the requested file formats (STEP/STL). Returns download URLs
+    for the generated files.
+    
+    Workflow:
+    1. Parse instruction using parse_instruction_internal helper
+    2. Build 3D model using dispatch_build from geometry.model_builder
+    3. Export to STEP/STL files as requested using geometry.exporter
+    4. Return download URLs and summary
+    
+    Args:
+        request (GenerateModelRequest): Request with instruction and export options
+        
+    Returns:
+        GenerateModelResponse: Response with download URLs and model summary
+        
+    Raises:
+        HTTPException: 422 for validation errors, 500 for processing errors
+        
+    Example:
+        Input: {
+            "instruction": "create a cylinder 20mm high and 15mm diameter",
+            "use_ai": true,
+            "export_step": true,
+            "export_stl": false
+        }
+        Output: {
+            "instruction": "create a cylinder 20mm high and 15mm diameter",
+            "source": "ai",
+            "step_url": "/outputs/cylinder_20250814_014500_a1b2c3d4.step",
+            "stl_url": null,
+            "summary": "Generated cylinder with 15mm diameter and 20mm height. Exported STEP file."
+        }
+    """
+    logger.info(f"Generating model for instruction: '{request.instruction}' (use_ai={request.use_ai}, export_step={request.export_step}, export_stl={request.export_stl})")
+    
+    # Check if geometry functionality is available
+    if not GEOMETRY_AVAILABLE:
+        logger.error("Geometry functionality not available - CadQuery dependencies missing")
+        raise HTTPException(
+            status_code=503,
+            detail="CAD model generation not available. CadQuery dependencies are not properly installed. Please install: pip install cadquery"
+        )
+    
+    try:
+        # Step 1: Parse instruction using the refactored helper
+        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
+        parsed_result = parse_result["result"]
+        source = parse_result["source"]
+        
+        action = parsed_result.get("action", "unknown")
+        parameters = parsed_result.get("parameters", {})
+        
+        logger.info(f"Parsed instruction - Action: {action}, Parameters: {parameters}")
+        
+        # Step 2: Build 3D model using dispatch_build
+        logger.info("Building 3D model...")
+        solid = dispatch_build(action, parameters)
+        logger.info("3D model built successfully")
+        
+        # Step 3: Export files as requested
+        step_url = None
+        stl_url = None
+        exported_files = []
+        
+        # Ensure outputs directory exists
+        ensure_outputs_directory()
+        
+        # Export STEP file if requested
+        if request.export_step:
+            try:
+                logger.info("Exporting STEP file...")
+                step_path = export_solid(solid, kind="step", prefix="model")
+                step_url = f"/{step_path}"  # Add leading slash for URL
+                exported_files.append("STEP")
+                logger.info(f"STEP file exported: {step_url}")
+            except Exception as e:
+                logger.error(f"Failed to export STEP file: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to export STEP file: {str(e)}"
+                )
+        
+        # Export STL file if requested
+        if request.export_stl:
+            try:
+                logger.info("Exporting STL file...")
+                stl_path = export_solid(solid, kind="stl", prefix="model")
+                stl_url = f"/{stl_path}"  # Add leading slash for URL
+                exported_files.append("STL")
+                logger.info(f"STL file exported: {stl_url}")
+            except Exception as e:
+                logger.error(f"Failed to export STL file: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to export STL file: {str(e)}"
+                )
+        
+        # Step 4: Generate summary
+        shape_info = parameters.get("shape", "feature")
+        diameter = parameters.get("diameter_mm")
+        height = parameters.get("height_mm")
+        count = parameters.get("count")
+        
+        # Build descriptive summary
+        summary_parts = []
+        
+        if action == "create_hole":
+            if count and count > 1:
+                summary_parts.append(f"Generated {count} holes")
+            else:
+                summary_parts.append("Generated hole")
+            
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+        
+        elif action == "create_feature" and shape_info == "cylinder":
+            summary_parts.append("Generated cylinder")
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+            if height:
+                summary_parts.append(f"and {height}mm height")
+        
+        else:
+            summary_parts.append(f"Generated {shape_info or 'CAD model'}")
+            if diameter:
+                summary_parts.append(f"with {diameter}mm diameter")
+            if height:
+                summary_parts.append(f"and {height}mm height")
+        
+        # Add export information
+        if exported_files:
+            summary_parts.append(f"Exported {' and '.join(exported_files)} file{'s' if len(exported_files) > 1 else ''}")
+        
+        summary = ". ".join(summary_parts) + "."
+        
+        # Create response
+        response = GenerateModelResponse(
+            instruction=request.instruction,
+            source=source,
+            step_url=step_url,
+            stl_url=stl_url,
+            summary=summary
+        )
+        
+        logger.info(f"Model generation complete - Summary: {summary}")
+        return response
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        logger.error(f"Error generating model for instruction '{request.instruction}': {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal error generating model: {str(e)}"
+        )
 
 
 @app.post("/jobs")
