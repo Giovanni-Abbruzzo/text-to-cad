@@ -116,6 +116,8 @@ Perfect for showcasing the system:
 4. **Run the server:**
    ```bash
    uvicorn backend.main:app --reload
+   OR for VScode
+   python -m uvicorn main:app --reload
    ```
 
 ### Available Endpoints
