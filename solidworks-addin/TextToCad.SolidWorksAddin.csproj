@@ -88,6 +88,8 @@
     <Compile Include="src\Utils\Units.cs" />
     <Compile Include="src\Utils\UndoScope.cs" />
     <Compile Include="src\Utils\Selection.cs" />
+    <!-- Sprint SW-3: Feature Builders -->
+    <Compile Include="src\Builders\BasePlateBuilder.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
