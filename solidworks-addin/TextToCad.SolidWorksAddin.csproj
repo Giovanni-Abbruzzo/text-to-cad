@@ -82,6 +82,12 @@
     <Compile Include="src\Models\InstructionResponse.cs" />
     <Compile Include="src\Models\ParsedParameters.cs" />
     <Compile Include="src\Properties\AssemblyInfo.cs" />
+    <!-- Sprint SW-2: Utility Helpers -->
+    <Compile Include="src\Interfaces\ILogger.cs" />
+    <Compile Include="src\Utils\Logger.cs" />
+    <Compile Include="src\Utils\Units.cs" />
+    <Compile Include="src\Utils\UndoScope.cs" />
+    <Compile Include="src\Utils\Selection.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

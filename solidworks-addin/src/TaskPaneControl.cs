@@ -16,6 +16,7 @@ namespace TextToCad.SolidWorksAddin
         #region Private Fields
 
         private bool isProcessing = false;
+        private Addin _addin;
 
         #endregion
 
@@ -26,6 +27,14 @@ namespace TextToCad.SolidWorksAddin
             InitializeComponent();
             InitializeUI();
             Logger.Info("TaskPaneControl initialized");
+        }
+
+        /// <summary>
+        /// Set the add-in reference for accessing SolidWorks API
+        /// </summary>
+        public void SetAddin(Addin addin)
+        {
+            _addin = addin;
         }
 
         #endregion
@@ -234,6 +243,163 @@ namespace TextToCad.SolidWorksAddin
         private void btnOpenLogs_Click(object sender, EventArgs e)
         {
             Logger.OpenLogDirectory();
+        }
+
+        /// <summary>
+        /// Test Units conversion utilities
+        /// </summary>
+        private void btnTestUnits_Click(object sender, EventArgs e)
+        {
+            AppendLog("\n═══ Testing Units Conversion ═══", Color.DarkBlue);
+            
+            double mm = 100.0;
+            double m = Utils.Units.MmToM(mm);
+            double backToMm = Utils.Units.MToMm(m);
+            
+            AppendLog($"100mm → {m}m → {backToMm}mm", Color.Black);
+            
+            if (Math.Abs(backToMm - mm) < 0.0001)
+            {
+                AppendLog("✓ Units conversion test PASSED", Color.Green);
+            }
+            else
+            {
+                AppendLog("✗ Units conversion test FAILED", Color.Red);
+            }
+        }
+
+        /// <summary>
+        /// Test plane selection utilities
+        /// </summary>
+        private void btnTestPlanes_Click(object sender, EventArgs e)
+        {
+            AppendLog("\n═══ Testing Plane Selection ═══", Color.DarkBlue);
+            
+            if (_addin == null)
+            {
+                AppendLog("✗ Add-in reference not set", Color.Red);
+                return;
+            }
+            
+            var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
+            if (model == null)
+            {
+                AppendLog("✗ No active document. Please open a part.", Color.Orange);
+                return;
+            }
+
+            var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+            
+            string[] planeNames = { "Top Plane", "Front Plane", "Right Plane" };
+            foreach (var planeName in planeNames)
+            {
+                bool found = Utils.Selection.SelectPlaneByName(_addin.SwApp, model, planeName, false, logger);
+                if (found)
+                {
+                    AppendLog($"✓ {planeName} selected - pausing to show...", Color.Green);
+                    Application.DoEvents(); // Update UI
+                    System.Threading.Thread.Sleep(1000); // Pause 1 second to see selection
+                }
+                else
+                {
+                    AppendLog($"✗ {planeName} not found", Color.Red);
+                }
+            }
+            
+            AppendLog("Plane selection test complete", Color.DarkBlue);
+        }
+
+        /// <summary>
+        /// Test face selection utilities
+        /// </summary>
+        private void btnTestFaces_Click(object sender, EventArgs e)
+        {
+            AppendLog("\n═══ Testing Face Selection ═══", Color.DarkBlue);
+            
+            if (_addin == null)
+            {
+                AppendLog("✗ Add-in reference not set", Color.Red);
+                return;
+            }
+            
+            var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
+            if (model == null)
+            {
+                AppendLog("✗ No active document. Please open a part with faces.", Color.Orange);
+                return;
+            }
+
+            var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+            
+            // Test finding top planar face (by highest Y-coordinate = top/bottom plane)
+            AppendLog("Searching for top-most planar face (highest Y = top)...", Color.Black);
+            var topFace = Utils.Selection.GetTopMostPlanarFace(model, logger);
+            if (topFace != null)
+            {
+                bool selected = Utils.Selection.SelectFace(model, topFace, false, logger);
+                AppendLog(selected ? "✓ Top planar face (highest Y-coordinate) found and selected" : "✗ Face found but selection failed", 
+                         selected ? Color.Green : Color.Orange);
+                AppendLog("Note: Y-axis = top/bottom, X-axis = right/left, Z-axis = front/back", Color.DarkGray);
+            }
+            else
+            {
+                AppendLog("✗ No planar faces found (create a simple box to test)", Color.Orange);
+            }
+            
+            int selCount = Utils.Selection.GetSelectionCount(model);
+            AppendLog($"Current selection count: {selCount}", Color.DarkGray);
+        }
+
+        /// <summary>
+        /// Test UndoScope utilities
+        /// </summary>
+        private void btnTestUndo_Click(object sender, EventArgs e)
+        {
+            AppendLog("\n═══ Testing Undo Scope ═══", Color.DarkBlue);
+            
+            if (_addin == null)
+            {
+                AppendLog("✗ Add-in reference not set", Color.Red);
+                return;
+            }
+            
+            var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
+            if (model == null)
+            {
+                AppendLog("✗ No active document. Please open a part.", Color.Orange);
+                return;
+            }
+
+            var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+            
+            AppendLog("⚠️ WARNING: EditRollback() behavior", Color.Orange);
+            AppendLog("SolidWorks EditRollback() rolls back to before the SELECTED feature,", Color.DarkGray);
+            AppendLog("not to a programmatic undo point. This is a SolidWorks API limitation.", Color.DarkGray);
+            AppendLog("If a feature is selected, it will rollback to before that feature.\n", Color.DarkGray);
+            
+            // Test committed scope
+            AppendLog("Test 1: Committed UndoScope (no rollback)", Color.DarkBlue);
+            using (var scope = new Utils.UndoScope(model, "Test Operation", logger))
+            {
+                AppendLog("  Inside undo scope...", Color.Black);
+                scope.Commit();
+                AppendLog("  Scope committed - rollback prevented", Color.Black);
+            }
+            AppendLog("✓ Committed scope test complete\n", Color.Green);
+            
+            // Test uncommitted scope (will attempt rollback)
+            AppendLog("Test 2: Uncommitted UndoScope (triggers rollback)", Color.DarkBlue);
+            AppendLog("  Deselecting all features first...", Color.DarkGray);
+            model.ClearSelection2(true);
+            
+            using (var scope = new Utils.UndoScope(model, "Rollback Test", logger))
+            {
+                AppendLog("  Inside undo scope...", Color.Black);
+                // Not calling Commit() - should trigger rollback warning
+                AppendLog("  (Not committing - will attempt rollback on dispose)", Color.DarkGray);
+            }
+            AppendLog("✓ Rollback scope test complete", Color.Green);
+            AppendLog("\nNote: Actual rollback effect depends on feature selection state", Color.Orange);
         }
 
         /// <summary>
