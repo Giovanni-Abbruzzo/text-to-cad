@@ -826,6 +826,353 @@ For older SolidWorks versions:
 
 ---
 
+## 🏗️ Feature Builders (Sprint SW-3)
+
+The add-in includes builder classes that create actual CAD features in SolidWorks. These builders use the Sprint SW-2 utilities to safely create geometry.
+
+### BasePlateBuilder - Rectangular Base Plate
+
+Creates a rectangular base plate as the foundation for a part. This is typically the first feature in a part.
+
+**What It Creates:**
+- Centered rectangle sketch on Top Plane
+- Boss-extrude feature (adds material)
+- Default size: 80×80×6 mm
+
+**Smart Behavior:**
+- Checks if solid bodies already exist
+- Skips creation if bodies found (won't overwrite existing geometry)
+- Uses UndoScope for automatic rollback on failure
+
+#### Basic Usage
+
+```csharp
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+
+// Create logger
+ILogger logger = new Utils.Logger(msg => Console.WriteLine(msg));
+
+// Create builder
+var builder = new BasePlateBuilder(swApp, logger);
+
+// Create default 80×80×6mm base plate
+bool success = builder.EnsureBasePlate(modelDoc);
+
+if (success)
+{
+    logger.Info("Base plate created or already exists");
+}
+```
+
+#### Custom Dimensions
+
+```csharp
+// Create custom 100×100×10mm base plate
+bool success = builder.EnsureBasePlate(modelDoc, 
+    sizeMm: 100.0,       // Width and depth (square)
+    thicknessMm: 10.0    // Height
+);
+```
+
+#### Check for Existing Bodies
+
+```csharp
+var builder = new BasePlateBuilder(swApp, logger);
+
+if (builder.HasSolidBodies(modelDoc))
+{
+    logger.Info("Part already has geometry, skipping base plate");
+}
+else
+{
+    builder.EnsureBasePlate(modelDoc);
+}
+```
+
+#### Integration with Task Pane
+
+```csharp
+// In TaskPaneControl.cs - Execute button handler
+private async void btnExecute_Click(object sender, EventArgs e)
+{
+    try
+    {
+        // Get API response
+        var response = await ApiClient.ProcessInstructionAsync(request);
+        
+        // Get SolidWorks application and active document
+        ISldWorks swApp = GetSolidWorksApp();  // Your method
+        IModelDoc2 model = swApp.ActiveDoc as IModelDoc2;
+        
+        if (model == null)
+        {
+            AppendLog("No active SolidWorks document", Color.Red);
+            return;
+        }
+        
+        // Create logger that forwards to UI
+        ILogger logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+        
+        // Parse parameters from response
+        var parsed = response.ParsedParameters;
+        
+        // If instruction is to create base plate
+        if (parsed.Action?.ToLower() == "create_feature" && 
+            parsed.ParametersData?.Shape?.ToLower() == "base")
+        {
+            var builder = new BasePlateBuilder(swApp, logger);
+            
+            // Use custom dimensions if provided, otherwise defaults
+            double size = parsed.ParametersData?.DiameterMm ?? 80.0;
+            double height = parsed.ParametersData?.HeightMm ?? 6.0;
+            
+            bool success = builder.EnsureBasePlate(model, size, height);
+            
+            if (success)
+            {
+                AppendLog("✓ Base plate created successfully", Color.Green);
+            }
+            else
+            {
+                AppendLog("✗ Failed to create base plate", Color.Red);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        AppendLog($"Error: {ex.Message}", Color.Red);
+    }
+}
+```
+
+#### Complete Example - From Instruction to Geometry
+
+```csharp
+using System;
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+using SolidWorks.Interop.sldworks;
+
+public void ExecuteBasePlateInstruction(
+    ISldWorks swApp,
+    IModelDoc2 model,
+    string instruction,
+    ILogger logger)
+{
+    logger.Info($"Executing: {instruction}");
+    
+    // Create builder
+    var builder = new BasePlateBuilder(swApp, logger);
+    
+    // Example: Parse custom dimensions from instruction
+    // "create 100mm base plate 8mm thick"
+    double size = 80.0;      // Default
+    double thickness = 6.0;  // Default
+    
+    // Simple parsing (in real implementation, use backend API response)
+    if (instruction.Contains("100mm"))
+        size = 100.0;
+    if (instruction.Contains("8mm thick"))
+        thickness = 8.0;
+    
+    // Create base plate with parsed dimensions
+    bool success = builder.EnsureBasePlate(model, size, thickness);
+    
+    if (success)
+    {
+        logger.Info($"✓ Base plate ready: {size}×{size}×{thickness} mm");
+    }
+    else
+    {
+        logger.Error("✗ Base plate creation failed");
+    }
+}
+```
+
+#### What Happens Internally
+
+When you call `EnsureBasePlate(model, 80, 6)`:
+
+1. **Check for existing bodies**
+   ```csharp
+   if (HasSolidBodies(model))
+       return true;  // Skip creation
+   ```
+
+2. **Select Top Plane**
+   ```csharp
+   Selection.SelectPlaneByName(swApp, model, "Top Plane");
+   ```
+
+3. **Create sketch**
+   ```csharp
+   model.SketchManager.InsertSketch(true);
+   ```
+
+4. **Draw center rectangle**
+   ```csharp
+   double sizeM = Units.MmToM(80);  // Convert to meters
+   model.SketchManager.CreateCenterRectangle(
+       0, 0, 0,           // Center at origin
+       sizeM/2, sizeM/2, 0  // Half-widths
+   );
+   ```
+
+5. **Exit sketch**
+   ```csharp
+   model.SketchManager.InsertSketch(true);
+   ```
+
+6. **Boss-extrude**
+   ```csharp
+   double thicknessM = Units.MmToM(6);
+   IFeature feature = model.FeatureManager.FeatureExtrusion2(
+       true,              // Single direction
+       false,             // Don't flip
+       false,             // Direction
+       0,                 // Blind end condition
+       0,                 // Not used
+       thicknessM,        // Depth in meters
+       0, false, false, false, 0, 0,
+       false, false, false, false, false, false
+   );
+   ```
+
+7. **Rebuild model**
+   ```csharp
+   model.ForceRebuild3(false);
+   ```
+
+All wrapped in `UndoScope` for automatic rollback on error!
+
+#### Error Handling
+
+The builder includes comprehensive error handling:
+
+**Null Checks:**
+- Model must not be null
+- Must be a Part document (not Assembly/Drawing)
+
+**Parameter Validation:**
+- Size must be > 0
+- Thickness must be > 0
+
+**Operation Failures:**
+- Plane selection failure → error logged, returns false
+- Sketch creation failure → rollback via UndoScope
+- Extrude failure → rollback via UndoScope
+
+**Example Error Messages:**
+```
+[ERROR] EnsureBasePlate: model is null
+[ERROR] Invalid size: -10 mm (must be > 0)
+[ERROR] Failed to select Top Plane
+[ERROR] FeatureExtrusion2 returned null - extrusion failed
+```
+
+#### Limitations
+
+**Design Assumptions:**
+- Creates square base plates only (size × size)
+- Always centered at origin (0, 0)
+- Always on Top Plane (not configurable)
+- Always extrudes upward (+Y direction)
+
+**SolidWorks Requirements:**
+- Must be Part document (not Assembly/Drawing)
+- Model must be in default orientation
+- Top Plane must exist and be accessible
+
+**Skipping Logic:**
+- Checks for ANY solid body
+- Will skip even if existing body is unrelated
+- No check for specific base plate feature name
+
+#### Best Practices
+
+**1. Always Check Return Value:**
+```csharp
+// ✓ CORRECT
+bool success = builder.EnsureBasePlate(model);
+if (!success)
+{
+    logger.Error("Base plate creation failed");
+    return;  // Don't proceed with other features
+}
+
+// ✗ RISKY
+builder.EnsureBasePlate(model);  // Ignores failure
+CreateHoles();  // May fail if no base exists
+```
+
+**2. Use Appropriate Dimensions:**
+```csharp
+// ✓ GOOD - Size proportional to other features
+double plateSize = holeDiameter * 10;  // Plate 10× larger than holes
+builder.EnsureBasePlate(model, plateSize, 6.0);
+
+// ✗ POOR - Tiny plate for large features
+builder.EnsureBasePlate(model, 10.0, 1.0);  // Too small!
+CreateHoles(diameter: 50);  // Holes bigger than plate!
+```
+
+**3. Log All Operations:**
+```csharp
+// ✓ CORRECT - Verbose logging
+logger.Info("Starting base plate creation");
+bool success = builder.EnsureBasePlate(model, 80, 6);
+logger.Info(success ? "Success" : "Failed");
+
+// ✗ MINIMAL - Hard to debug
+builder.EnsureBasePlate(model, 80, 6);  // Silent
+```
+
+**4. Handle Existing Geometry:**
+```csharp
+// ✓ CORRECT - Explicit check
+if (builder.HasSolidBodies(model))
+{
+    logger.Info("Using existing geometry as base");
+}
+else
+{
+    builder.EnsureBasePlate(model);
+}
+
+// ✗ UNCLEAR - Relies on internal check
+builder.EnsureBasePlate(model);  // Did it skip or create?
+```
+
+#### Future Enhancements (Not Yet Implemented)
+
+**Rectangular (Non-Square) Plates:**
+```csharp
+// Future API:
+builder.EnsureBasePlate(model, widthMm: 100, depthMm: 80, thicknessMm: 6);
+```
+
+**Custom Plane Selection:**
+```csharp
+// Future API:
+builder.EnsureBasePlate(model, size: 80, thickness: 6, plane: "Front Plane");
+```
+
+**Circular Base Plates:**
+```csharp
+// Future API:
+builder.EnsureCircularBasePlate(model, diameter: 100, thickness: 6);
+```
+
+**Offset from Origin:**
+```csharp
+// Future API:
+builder.EnsureBasePlate(model, size: 80, thickness: 6, offsetX: 10, offsetY: 10);
+```
+
+---
+
 ## 🔐 Security Notes
 
 - **Development Only**: This add-in uses HTTP (not HTTPS) for localhost development

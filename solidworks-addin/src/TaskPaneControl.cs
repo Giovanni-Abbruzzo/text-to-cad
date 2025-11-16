@@ -159,6 +159,21 @@ namespace TextToCad.SolidWorksAddin
                 DisplayResponse(response, isPreview: false);
 
                 AppendLog("✓ Execution complete (saved to database)", Color.Green);
+
+                // === NEW: Actually execute the CAD operation ===
+                AppendLog("", Color.Black);
+                AppendLog("🔧 Creating CAD geometry...", Color.Blue);
+                
+                bool geometryCreated = ExecuteCADOperation(response);
+                
+                if (geometryCreated)
+                {
+                    AppendLog("✓ CAD geometry created successfully!", Color.Green);
+                }
+                else
+                {
+                    AppendLog("⚠️ Geometry creation skipped or failed (see details above)", Color.Orange);
+                }
             }
             catch (Exception ex)
             {
@@ -423,6 +438,164 @@ namespace TextToCad.SolidWorksAddin
             {
                 txtInstruction.ForeColor = SystemColors.GrayText;
                 txtInstruction.Text = "Enter CAD instruction here... (e.g., 'create 4 holes in a circular pattern')";
+            }
+        }
+
+        #endregion
+
+        #region CAD Execution
+
+        /// <summary>
+        /// Execute the actual CAD operation based on parsed API response.
+        /// This is where natural language gets converted to real geometry!
+        /// </summary>
+        /// <param name="response">Parsed instruction response from backend</param>
+        /// <returns>True if geometry was created; false if skipped or failed</returns>
+        private bool ExecuteCADOperation(InstructionResponse response)
+        {
+            try
+            {
+                // Get SolidWorks application and active document
+                if (_addin == null)
+                {
+                    AppendLog("❌ Add-in not initialized", Color.Red);
+                    Logger.Error("ExecuteCADOperation: _addin is null");
+                    return false;
+                }
+
+                var swApp = _addin.SwApp;
+                if (swApp == null)
+                {
+                    AppendLog("❌ SolidWorks application not available", Color.Red);
+                    Logger.Error("ExecuteCADOperation: SwApp is null");
+                    return false;
+                }
+
+                var model = swApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
+                if (model == null)
+                {
+                    AppendLog("❌ No active SolidWorks document", Color.Red);
+                    AppendLog("Please open a Part document first", Color.Orange);
+                    System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: No active document");
+                    return false;
+                }
+
+                // Check document type
+                if (model.GetType() != (int)SolidWorks.Interop.swconst.swDocumentTypes_e.swDocPART)
+                {
+                    AppendLog("❌ Active document is not a Part", Color.Red);
+                    AppendLog("Please open a Part document (not Assembly or Drawing)", Color.Orange);
+                    System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Document type is {model.GetType()}, not Part");
+                    return false;
+                }
+
+                // Create logger that forwards to UI
+                var logger = new Utils.Logger(msg => AppendLog(msg, Color.DarkGray));
+
+                // Parse the action and parameters
+                var parsed = response.ParsedParameters;
+                if (parsed == null)
+                {
+                    AppendLog("⚠️ No parameters parsed from instruction", Color.Orange);
+                    System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: ParsedParameters is null");
+                    return false;
+                }
+
+                string action = parsed.Action?.ToLower() ?? "";
+                string shape = parsed.ParametersData?.Shape?.ToLower() ?? "";
+
+                AppendLog($"Action: {parsed.Action}, Shape: {parsed.ParametersData?.Shape}", Color.DarkGray);
+
+                // === DISPATCH TO APPROPRIATE BUILDER ===
+
+                // Base Plate Creation
+                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular"))
+                {
+                    AppendLog("Detected: Base Plate creation", Color.Blue);
+                    return CreateBasePlate(swApp, model, parsed, logger);
+                }
+                
+                // Cylinder Creation (future)
+                else if (shape.Contains("cylinder") || shape.Contains("cylindrical"))
+                {
+                    AppendLog("⚠️ Cylinder creation not yet implemented (coming in Sprint SW-4+)", Color.Orange);
+                    Logger.Info("Cylinder builder not yet available");
+                    return false;
+                }
+                
+                // Hole Pattern (future)
+                else if (shape.Contains("hole") || action.Contains("hole"))
+                {
+                    AppendLog("⚠️ Hole pattern creation not yet implemented (coming in Sprint SW-4)", Color.Orange);
+                    Logger.Info("Hole builder not yet available");
+                    return false;
+                }
+                
+                // Unknown operation
+                else
+                {
+                    AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
+                    AppendLog("Currently supported: base plates", Color.Gray);
+                    System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Unrecognized action/shape: {action}/{shape}");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ CAD execution error: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation exception: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create a base plate using BasePlateBuilder
+        /// </summary>
+        private bool CreateBasePlate(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                // Extract dimensions from parsed parameters
+                // Note: Backend uses "diameter" for width sometimes, and "height" for extrusion depth
+                double sizeMm = 80.0;  // Default
+                double thicknessMm = 6.0;  // Default
+
+                var data = parsed.ParametersData;
+                if (data != null)
+                {
+                    // Try to get size from diameter field (backend uses this for width)
+                    if (data.DiameterMm.HasValue && data.DiameterMm.Value > 0)
+                    {
+                        sizeMm = data.DiameterMm.Value;
+                    }
+
+                    // Try to get thickness from height
+                    if (data.HeightMm.HasValue && data.HeightMm.Value > 0)
+                    {
+                        thicknessMm = data.HeightMm.Value;
+                    }
+                }
+
+                AppendLog($"Creating base plate: {sizeMm}×{sizeMm}×{thicknessMm} mm", Color.Blue);
+
+                // Create the builder
+                var builder = new Builders.BasePlateBuilder(swApp, logger);
+
+                // Execute!
+                bool success = builder.EnsureBasePlate(model, sizeMm, thicknessMm);
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Base plate creation failed: {ex.Message}", Color.Red);
+                Logger.Error($"CreateBasePlate exception: {ex.Message}");
+                return false;
             }
         }
 
