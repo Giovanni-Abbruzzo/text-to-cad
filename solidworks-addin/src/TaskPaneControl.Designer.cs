@@ -46,10 +46,16 @@ namespace TextToCad.SolidWorksAddin
             this.btnUpdateUrl = new System.Windows.Forms.Button();
             this.lblApiBase = new System.Windows.Forms.Label();
             this.txtApiBase = new System.Windows.Forms.TextBox();
+            this.grpTestUtils = new System.Windows.Forms.GroupBox();
+            this.btnTestUnits = new System.Windows.Forms.Button();
+            this.btnTestPlanes = new System.Windows.Forms.Button();
+            this.btnTestFaces = new System.Windows.Forms.Button();
+            this.btnTestUndo = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.grpPlan.SuspendLayout();
             this.grpLog.SuspendLayout();
             this.grpSettings.SuspendLayout();
+            this.grpTestUtils.SuspendLayout();
             this.SuspendLayout();
             // 
             // lblTitle
@@ -200,6 +206,64 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "⚙️ Settings";
             // 
+            // grpTestUtils
+            // 
+            this.grpTestUtils.Controls.Add(this.btnTestUnits);
+            this.grpTestUtils.Controls.Add(this.btnTestPlanes);
+            this.grpTestUtils.Controls.Add(this.btnTestFaces);
+            this.grpTestUtils.Controls.Add(this.btnTestUndo);
+            this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 700);
+            this.grpTestUtils.Name = "grpTestUtils";
+            this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
+            this.grpTestUtils.TabIndex = 10;
+            this.grpTestUtils.TabStop = false;
+            this.grpTestUtils.Text = "🧪 Test Sprint SW-2 Utilities";
+            // 
+            // btnTestUnits
+            // 
+            this.btnTestUnits.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnTestUnits.Location = new System.Drawing.Point(6, 25);
+            this.btnTestUnits.Name = "btnTestUnits";
+            this.btnTestUnits.Size = new System.Drawing.Size(154, 30);
+            this.btnTestUnits.TabIndex = 0;
+            this.btnTestUnits.Text = "📏 Test Units";
+            this.btnTestUnits.UseVisualStyleBackColor = true;
+            this.btnTestUnits.Click += new System.EventHandler(this.btnTestUnits_Click);
+            // 
+            // btnTestPlanes
+            // 
+            this.btnTestPlanes.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnTestPlanes.Location = new System.Drawing.Point(170, 25);
+            this.btnTestPlanes.Name = "btnTestPlanes";
+            this.btnTestPlanes.Size = new System.Drawing.Size(154, 30);
+            this.btnTestPlanes.TabIndex = 1;
+            this.btnTestPlanes.Text = "📐 Test Plane Selection";
+            this.btnTestPlanes.UseVisualStyleBackColor = true;
+            this.btnTestPlanes.Click += new System.EventHandler(this.btnTestPlanes_Click);
+            // 
+            // btnTestFaces
+            // 
+            this.btnTestFaces.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnTestFaces.Location = new System.Drawing.Point(6, 61);
+            this.btnTestFaces.Name = "btnTestFaces";
+            this.btnTestFaces.Size = new System.Drawing.Size(154, 30);
+            this.btnTestFaces.TabIndex = 2;
+            this.btnTestFaces.Text = "🔲 Test Face Selection";
+            this.btnTestFaces.UseVisualStyleBackColor = true;
+            this.btnTestFaces.Click += new System.EventHandler(this.btnTestFaces_Click);
+            // 
+            // btnTestUndo
+            // 
+            this.btnTestUndo.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnTestUndo.Location = new System.Drawing.Point(170, 61);
+            this.btnTestUndo.Name = "btnTestUndo";
+            this.btnTestUndo.Size = new System.Drawing.Size(154, 30);
+            this.btnTestUndo.TabIndex = 3;
+            this.btnTestUndo.Text = "↩️ Test Undo Scope";
+            this.btnTestUndo.UseVisualStyleBackColor = true;
+            this.btnTestUndo.Click += new System.EventHandler(this.btnTestUndo_Click);
+            // 
             // btnOpenLogs
             // 
             this.btnOpenLogs.Font = new System.Drawing.Font("Segoe UI", 8F);
@@ -265,7 +329,7 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 705);
+            this.lblStatus.Location = new System.Drawing.Point(0, 810);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
@@ -280,6 +344,7 @@ namespace TextToCad.SolidWorksAddin
             this.AutoScroll = true;
             this.BackColor = System.Drawing.Color.White;
             this.Controls.Add(this.lblStatus);
+            this.Controls.Add(this.grpTestUtils);
             this.Controls.Add(this.grpSettings);
             this.Controls.Add(this.grpLog);
             this.Controls.Add(this.grpPlan);
@@ -291,12 +356,13 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 730);
+            this.Size = new System.Drawing.Size(350, 835);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
             this.grpLog.ResumeLayout(false);
             this.grpSettings.ResumeLayout(false);
             this.grpSettings.PerformLayout();
+            this.grpTestUtils.ResumeLayout(false);
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -322,6 +388,11 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.Label lblConnectionStatus;
         private System.Windows.Forms.Button btnTestConnection;
         private System.Windows.Forms.Button btnOpenLogs;
+        private System.Windows.Forms.GroupBox grpTestUtils;
+        private System.Windows.Forms.Button btnTestUnits;
+        private System.Windows.Forms.Button btnTestPlanes;
+        private System.Windows.Forms.Button btnTestFaces;
+        private System.Windows.Forms.Button btnTestUndo;
         private System.Windows.Forms.Label lblStatus;
     }
 }

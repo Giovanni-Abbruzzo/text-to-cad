@@ -27,6 +27,11 @@ namespace TextToCad.SolidWorksAddin
         private ISldWorks swApp;
 
         /// <summary>
+        /// Public accessor for SolidWorks application (for TaskPaneControl)
+        /// </summary>
+        public ISldWorks SwApp => swApp;
+
+        /// <summary>
         /// Add-in cookie (unique identifier assigned by SolidWorks)
         /// </summary>
         private int addinID;
@@ -65,8 +70,8 @@ namespace TextToCad.SolidWorksAddin
                 // Test API connection
                 TestApiConnectionAsync();
 
-                // Create and show Task Pane
-                taskPaneHost = new TaskPaneHost(swApp, addinID);
+                // Create and show Task Pane (pass this for Sprint SW-2 test utilities)
+                taskPaneHost = new TaskPaneHost(swApp, addinID, this);
                 Logger.Info("Task Pane created successfully");
 
                 Logger.Info("Text-to-CAD Add-In loaded successfully!");

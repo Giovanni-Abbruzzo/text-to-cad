@@ -455,6 +455,377 @@ solidworks-addin/
 └── TROUBLESHOOTING.md              # Detailed troubleshooting
 ```
 
+## 🛠️ Utility Helpers (Sprint SW-2)
+
+The add-in includes a comprehensive set of utility classes to simplify SolidWorks API operations. These helpers handle common tasks like unit conversion, plane selection, face finding, and safe undo/rollback.
+
+### Units - Dimension Conversion
+
+**CRITICAL:** SolidWorks API expects dimensions in **METERS**, but users think in **MILLIMETERS**.
+
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+
+// Convert user input (mm) to API format (meters)
+double userDepth = 50;  // mm
+double apiDepth = Units.MmToM(userDepth);  // 0.05 m
+
+// Use in API calls
+featureManager.FeatureExtrusion2(..., apiDepth, ...);
+
+// Convert API output (meters) to display format (mm)
+double featureDepth = feature.GetDepth();  // meters
+double displayDepth = Units.MToMm(featureDepth);  // mm
+Console.WriteLine($"Depth: {displayDepth} mm");
+```
+
+**Available Methods:**
+- `Units.MmToM(double mm)` - Convert millimeters to meters
+- `Units.MToMm(double m)` - Convert meters to millimeters
+
+**Constants:**
+- `Units.OneMm` = 0.001 (1mm in meters)
+- `Units.OneCm` = 0.01 (1cm in meters)
+- `Units.OneM` = 1000.0 (1m in millimeters)
+
+### UndoScope - Safe Rollback
+
+Provides RAII-style (Resource Acquisition Is Initialization) guard for automatic rollback if operations fail.
+
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+
+ILogger logger = new Utils.Logger(msg => txtLog.AppendText(msg + "\r\n"));
+
+// Wrap risky operations in UndoScope
+using (var scope = new UndoScope(modelDoc, "Create Base Plate", logger))
+{
+    // Select plane
+    Selection.SelectPlaneByName(swApp, modelDoc, "Top Plane");
+    
+    // Create sketch
+    modelDoc.SketchManager.InsertSketch(true);
+    modelDoc.SketchManager.CreateCenterRectangle(0, 0, 0, 
+        Units.MmToM(50), Units.MmToM(50), Units.MmToM(0));
+    modelDoc.SketchManager.InsertSketch(true);
+    
+    // Create extrude feature
+    modelDoc.FeatureManager.FeatureExtrusion2(true, false, false,
+        0, 0, Units.MmToM(10), 0, false, false, ...);
+    
+    // If all operations succeed, commit the changes
+    scope.Commit();
+}
+// If Commit() was not called (e.g., exception thrown), 
+// Dispose() automatically rolls back all changes
+```
+
+**How It Works:**
+1. Constructor calls `model.SetUndoPoint()` at start
+2. Perform your operations inside the `using` block
+3. Call `scope.Commit()` if all operations succeed
+4. If exception or early return, `Dispose()` calls `model.EditRollback()`
+
+**Important Notes:**
+- Always use with `using` statement for automatic disposal
+- Call `Commit()` only after all operations succeed
+- Rollback behavior varies by SolidWorks version
+- Some operations cannot be undone programmatically
+
+### Selection - Planes and Faces
+
+High-level helpers for selecting geometry in SolidWorks.
+
+#### Select Plane by Name
+
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+
+// Select a reference plane to start a sketch
+if (Selection.SelectPlaneByName(swApp, modelDoc, "Top Plane", logger: logger))
+{
+    modelDoc.SketchManager.InsertSketch(true);
+    // Draw sketch entities...
+    modelDoc.SketchManager.InsertSketch(true);
+}
+else
+{
+    logger.Error("Failed to select Top Plane");
+}
+```
+
+**Common Plane Names:**
+- `"Front Plane"` - XY plane (front view)
+- `"Top Plane"` - XZ plane (top view)
+- `"Right Plane"` - YZ plane (right view)
+
+**Parameters:**
+- `append` = `false` (default): Clears selection first
+- `append` = `true`: Adds to current selection
+
+#### Find Topmost Planar Face
+
+Automatically finds the highest planar face in the part (useful for hole patterns on top surface).
+
+```csharp
+// Find the top face of a part
+IFace2 topFace = Selection.GetTopMostPlanarFace(modelDoc, logger);
+
+if (topFace != null)
+{
+    // Select the face
+    Selection.SelectFace(modelDoc, topFace);
+    
+    // Start sketch on that face
+    modelDoc.SketchManager.InsertSketch(true);
+    
+    // Create hole pattern...
+}
+else
+{
+    logger.Warn("No planar faces found, using Top Plane as fallback");
+    Selection.SelectPlaneByName(swApp, modelDoc, "Top Plane");
+}
+```
+
+**How It Works:**
+1. Iterates through all solid bodies in the part
+2. Examines all faces of each body
+3. Filters to planar faces only
+4. Calculates center Z-coordinate of each face
+5. Returns face with maximum Z value (highest in model space)
+
+**Limitations:**
+- Only works for Part documents (not Assemblies or Drawings)
+- Assumes standard orientation (+Z = up)
+- Does not account for face area (small top face will still win)
+
+### Logger - Lightweight Logging
+
+Thread-safe logger that can forward messages to UI controls or debug output.
+
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+
+// Create logger that forwards to Task Pane log
+ILogger logger = new Utils.Logger(msg => 
+{
+    txtLog.AppendText(msg + "\r\n");
+    txtLog.ScrollToCaret();
+});
+
+// Use in your code
+logger.Info("Starting feature creation");
+logger.Warn("Face selection returned null, using default");
+logger.Error("Failed to create extrude: " + ex.Message);
+
+// Alternative: Debug output only
+ILogger debugLogger = Utils.Logger.Debug();
+
+// Alternative: Null logger (discards all messages)
+ILogger nullLogger = Utils.Logger.Null();
+```
+
+**Methods:**
+- `Info(string message)` - Informational messages
+- `Warn(string message)` - Non-critical warnings
+- `Error(string message)` - Error messages
+
+**Message Format:**
+```
+[HH:mm:ss.fff] [INFO] Starting feature creation
+[HH:mm:ss.fff] [WARN] Face selection returned null
+[HH:mm:ss.fff] [ERROR] Failed to create extrude
+```
+
+### Complete Example - Create Base Plate
+
+Putting it all together:
+
+```csharp
+using System;
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+using SolidWorks.Interop.sldworks;
+
+public bool CreateBasePlate(
+    ISldWorks swApp, 
+    IModelDoc2 modelDoc, 
+    double widthMm, 
+    double depthMm, 
+    double heightMm,
+    ILogger logger)
+{
+    // Use UndoScope for safe rollback on failure
+    using (var scope = new UndoScope(modelDoc, "Create Base Plate", logger))
+    {
+        try
+        {
+            logger.Info($"Creating base plate: {widthMm}×{depthMm}×{heightMm} mm");
+            
+            // Clear any existing selection
+            Selection.ClearSelection(modelDoc, logger);
+            
+            // Select Top Plane
+            if (!Selection.SelectPlaneByName(swApp, modelDoc, "Top Plane", logger: logger))
+            {
+                logger.Error("Failed to select Top Plane");
+                return false;
+            }
+            
+            // Start sketch
+            modelDoc.SketchManager.InsertSketch(true);
+            
+            // Create rectangle (centered at origin)
+            // Convert dimensions to meters
+            double widthM = Units.MmToM(widthMm);
+            double depthM = Units.MmToM(depthMm);
+            
+            modelDoc.SketchManager.CreateCenterRectangle(
+                0, 0, 0,  // Center point at origin
+                widthM / 2, depthM / 2, 0  // Half-widths
+            );
+            
+            // Exit sketch
+            modelDoc.SketchManager.InsertSketch(true);
+            
+            // Create extrude feature
+            double heightM = Units.MmToM(heightMm);
+            
+            IFeature feature = modelDoc.FeatureManager.FeatureExtrusion2(
+                true,     // SD (single direction)
+                false,    // Flip
+                false,    // Dir
+                0,        // T1 (extrude type: blind)
+                0,        // T2
+                heightM,  // D1 (depth in meters)
+                0,        // D2
+                false,    // DDir
+                false,    // DDir2
+                false,    // DDirBoth
+                0,        // DDirAngle
+                0,        // DDirAngle2
+                false,    // Merge
+                false,    // UseFeatScope
+                false,    // UseAutoSelect
+                false,    // AssemblyFeatureScope
+                false,    // AutoSelectComponents
+                false     // PropagateFeatureToParts
+            );
+            
+            if (feature == null)
+            {
+                logger.Error("FeatureExtrusion2 returned null");
+                return false;
+            }
+            
+            logger.Info("✓ Base plate created successfully");
+            
+            // All operations succeeded - commit the changes
+            scope.Commit();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.Error($"Exception creating base plate: {ex.Message}");
+            return false;
+            // UndoScope will automatically rollback on exception
+        }
+    }
+}
+```
+
+### Utility Best Practices
+
+**1. Always Convert Units:**
+```csharp
+// ✓ CORRECT
+double depthM = Units.MmToM(50);  // Convert before API call
+feature.FeatureExtrusion2(..., depthM, ...);
+
+// ✗ WRONG
+feature.FeatureExtrusion2(..., 50, ...);  // 50 meters instead of 50mm!
+```
+
+**2. Use UndoScope for Multi-Step Operations:**
+```csharp
+// ✓ CORRECT - Wrapped in UndoScope
+using (var scope = new UndoScope(model, "Operation", logger))
+{
+    CreateSketch();
+    CreateFeature();
+    scope.Commit();  // Only commits if both succeed
+}
+
+// ✗ RISKY - No rollback if second operation fails
+CreateSketch();  // Succeeds
+CreateFeature();  // Fails - now model is in inconsistent state
+```
+
+**3. Check Selection Results:**
+```csharp
+// ✓ CORRECT
+if (!Selection.SelectPlaneByName(swApp, model, "Top Plane"))
+{
+    logger.Error("Selection failed");
+    return;
+}
+
+// ✗ RISKY - Assumes selection always succeeds
+Selection.SelectPlaneByName(swApp, model, "Top Plane");
+modelDoc.SketchManager.InsertSketch(true);  // May fail if plane not selected
+```
+
+**4. Use Logger for Diagnostics:**
+```csharp
+// ✓ CORRECT - Detailed logging
+logger.Info("Starting hole creation");
+if (hole == null)
+{
+    logger.Error("Hole feature returned null");
+    logger.Error($"Parameters: diameter={dia}, depth={dep}");
+}
+
+// ✗ MINIMAL - Hard to debug
+// Silent failure, no diagnostics
+```
+
+### Utility Limitations
+
+**UndoScope:**
+- Rollback behavior varies by SolidWorks version (2015-2024)
+- Some operations cannot be undone programmatically (e.g., file save)
+- May not work perfectly for all feature types
+- If `SetUndoPoint()` fails, rollback scope is limited
+
+**Selection:**
+- Plane names are case-sensitive and version-dependent
+- Assembly plane selection requires fully qualified names
+- Face finding assumes standard model orientation (+Z up)
+- Works only for Part documents (not Assemblies/Drawings)
+
+**Units:**
+- Assumes metric units (mm/m)
+- Does not handle imperial units (inches/feet)
+- Some API methods may use different unit conventions
+
+### Version Compatibility
+
+These utilities are tested with:
+- ✅ SolidWorks 2020-2024
+- ✅ .NET Framework 4.7.2
+- ✅ Windows 10/11 64-bit
+
+For older SolidWorks versions:
+- Some API methods may have different signatures
+- `IFace2.Select4()` may need to be `Select()` or `Select2()`
+- Undo/rollback mechanisms may differ
+- Consult your version's API Help documentation
+
+---
+
 ## 🔐 Security Notes
 
 - **Development Only**: This add-in uses HTTP (not HTTPS) for localhost development

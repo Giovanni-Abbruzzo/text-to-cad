@@ -27,12 +27,13 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         /// <param name="solidWorksApp">SolidWorks application reference</param>
         /// <param name="cookieID">Add-in ID</param>
-        public TaskPaneHost(ISldWorks solidWorksApp, int cookieID)
+        /// <param name="addin">Add-in instance for API access</param>
+        public TaskPaneHost(ISldWorks solidWorksApp, int cookieID, Addin addin = null)
         {
             swApp = solidWorksApp ?? throw new ArgumentNullException(nameof(solidWorksApp));
             addinID = cookieID;
 
-            CreateTaskPane();
+            CreateTaskPane(addin);
         }
 
         #endregion
@@ -42,7 +43,7 @@ namespace TextToCad.SolidWorksAddin
         /// <summary>
         /// Create the Task Pane and add the WinForms control
         /// </summary>
-        private void CreateTaskPane()
+        private void CreateTaskPane(Addin addin)
         {
             try
             {
@@ -50,6 +51,13 @@ namespace TextToCad.SolidWorksAddin
 
                 // Create the WinForms control that will be hosted in the Task Pane
                 taskPaneControl = new TaskPaneControl();
+                
+                // Set the add-in reference for Sprint SW-2 test utilities
+                if (addin != null)
+                {
+                    taskPaneControl.SetAddin(addin);
+                    Logger.Info("Add-in reference set for TaskPaneControl");
+                }
 
                 // Get the icon path (using a default icon for now)
                 // TODO: Add custom icon file and update path
