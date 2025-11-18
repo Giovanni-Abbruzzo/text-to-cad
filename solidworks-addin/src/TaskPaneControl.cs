@@ -523,19 +523,18 @@ namespace TextToCad.SolidWorksAddin
                     return false;
                 }
                 
-                // Hole Pattern (future)
-                else if (shape.Contains("hole") || action.Contains("hole"))
+                // Hole Pattern (Sprint SW-4)
+                else if (shape.Contains("hole") || action.Contains("hole") || shape.Contains("pattern"))
                 {
-                    AppendLog("⚠️ Hole pattern creation not yet implemented (coming in Sprint SW-4)", Color.Orange);
-                    Logger.Info("Hole builder not yet available");
-                    return false;
+                    AppendLog("Detected: Circular hole pattern creation", Color.Blue);
+                    return CreateCircularHoles(swApp, model, parsed, logger);
                 }
                 
                 // Unknown operation
                 else
                 {
                     AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
-                    AppendLog("Currently supported: base plates", Color.Gray);
+                    AppendLog("Currently supported: base plates, circular hole patterns", Color.Gray);
                     System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Unrecognized action/shape: {action}/{shape}");
                     return false;
                 }
@@ -595,6 +594,64 @@ namespace TextToCad.SolidWorksAddin
             {
                 AppendLog($"❌ Base plate creation failed: {ex.Message}", Color.Red);
                 Logger.Error($"CreateBasePlate exception: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create a circular pattern of holes using CircularHolesBuilder
+        /// </summary>
+        private bool CreateCircularHoles(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                // Extract parameters from parsed data
+                var data = parsed.ParametersData;
+                if (data == null)
+                {
+                    AppendLog("⚠️ No parameters data for hole pattern", Color.Orange);
+                    return false;
+                }
+
+                // Required parameters - with fallbacks from Pattern property
+                int count = data.Count ?? data.Pattern?.Count ?? 4;  // Default: 4 holes (square pattern)
+                double diameterMm = data.DiameterMm ?? 5.0;  // Default: 5mm holes (M5 bolts)
+
+                // Optional parameters - check both direct and Pattern properties
+                double? angleDeg = data.AngleDeg ?? data.Pattern?.AngleDeg;  // null = full circle (360°)
+                double? patternRadiusMm = data.RadiusMm;  // null = calculated from plate size
+                double? plateSizeMm = data.WidthMm ?? 80.0;  // Default: 80mm plate
+
+                AppendLog($"Creating circular hole pattern:", Color.Blue);
+                AppendLog($"  Count: {count}, Diameter: {diameterMm}mm", Color.DarkGray);
+                if (angleDeg.HasValue)
+                    AppendLog($"  Angle: {angleDeg}°", Color.DarkGray);
+                if (patternRadiusMm.HasValue)
+                    AppendLog($"  Pattern radius: {patternRadiusMm}mm", Color.DarkGray);
+
+                // Create the builder
+                var builder = new Builders.CircularHolesBuilder(swApp, logger);
+
+                // Execute!
+                bool success = builder.CreatePatternOnTopFace(
+                    model,
+                    count,
+                    diameterMm,
+                    angleDeg,
+                    patternRadiusMm,
+                    plateSizeMm
+                );
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Circular hole pattern creation failed: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"CreateCircularHoles exception: {ex.Message}");
                 return false;
             }
         }

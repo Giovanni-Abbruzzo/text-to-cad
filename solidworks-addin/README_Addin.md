@@ -1145,6 +1145,424 @@ else
 builder.EnsureBasePlate(model);  // Did it skip or create?
 ```
 
+---
+
+### CircularHolesBuilder - Circular Hole Patterns
+
+Creates a circular pattern of cut holes on the top face of a part. Perfect for mounting holes, bolt circles, and evenly-spaced features.
+
+**What It Creates:**
+- N circles in a circular pattern
+- Cut-extrude through all
+- Auto-creates base plate if needed
+- Default: 4 holes, 5mm diameter, 360° span
+
+**Smart Behavior:**
+- Finds topmost planar face automatically
+- Creates base plate if model is empty
+- Validates hole count and diameter
+- Uses UndoScope for automatic rollback
+
+#### Basic Usage
+
+```csharp
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+
+// Create logger
+ILogger logger = new Utils.Logger(msg => Console.WriteLine(msg));
+
+// Create builder
+var builder = new CircularHolesBuilder(swApp, logger);
+
+// Create default 4-hole pattern (square)
+bool success = builder.CreatePatternOnTopFace(
+    model,
+    count: 4,              // 4 holes
+    diameterMm: 5.0        // 5mm diameter (M5 bolts)
+);
+```
+
+#### Common Patterns
+
+**Square Pattern (4 mounting holes):**
+```csharp
+builder.CreatePatternOnTopFace(
+    model, 
+    count: 4,              // Square pattern
+    diameterMm: 5.0,       // M5 bolt holes
+    angleDeg: 360,         // Full circle
+    patternRadiusMm: 30.0  // 60mm diameter circle
+);
+```
+
+**Hexagonal Pattern (6 holes):**
+```csharp
+builder.CreatePatternOnTopFace(
+    model, 
+    count: 6,              // Hexagonal
+    diameterMm: 6.0,       // M6 bolt holes
+    angleDeg: 360,         // Full circle
+    patternRadiusMm: 40.0  // 80mm diameter circle
+);
+```
+
+**Arc Pattern (3 holes in semicircle):**
+```csharp
+builder.CreatePatternOnTopFace(
+    model, 
+    count: 3,              // 3 holes
+    diameterMm: 4.0,       // M4 bolt holes
+    angleDeg: 180,         // Semicircle (half)
+    patternRadiusMm: 25.0  // 50mm diameter arc
+);
+```
+
+**Using Defaults (auto-calculated pattern radius):**
+```csharp
+// Pattern radius = plateSizeMm * 0.3
+// For 80mm plate: radius = 24mm
+builder.CreatePatternOnTopFace(
+    model, 
+    count: 4,
+    diameterMm: 5.0,
+    plateSizeMm: 80.0  // Used for auto-calc radius
+);
+```
+
+#### Integration with Task Pane
+
+```csharp
+// In TaskPaneControl.cs - Execute button handler
+private async void btnExecute_Click(object sender, EventArgs e)
+{
+    try
+    {
+        var response = await ApiClient.ProcessInstructionAsync(request);
+        ISldWorks swApp = GetSolidWorksApp();
+        IModelDoc2 model = swApp.ActiveDoc as IModelDoc2;
+        
+        ILogger logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+        
+        var parsed = response.ParsedParameters;
+        
+        // If instruction is to create holes
+        if (parsed.Action?.ToLower() == "create_hole" || 
+            parsed.ParametersData?.Shape?.ToLower().Contains("hole") == true)
+        {
+            var builder = new CircularHolesBuilder(swApp, logger);
+            
+            int count = parsed.ParametersData?.Count ?? 4;
+            double diameter = parsed.ParametersData?.DiameterMm ?? 5.0;
+            double? angle = parsed.ParametersData?.AngleDeg;
+            
+            bool success = builder.CreatePatternOnTopFace(
+                model, count, diameter, angle
+            );
+            
+            if (success)
+            {
+                AppendLog("✓ Hole pattern created successfully", Color.Green);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        AppendLog($"Error: {ex.Message}", Color.Red);
+    }
+}
+```
+
+#### Complete Example - From Instruction to Holes
+
+```csharp
+using System;
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+using SolidWorks.Interop.sldworks;
+
+public void ExecuteHolePatternInstruction(
+    ISldWorks swApp,
+    IModelDoc2 model,
+    string instruction,
+    ILogger logger)
+{
+    logger.Info($"Executing: {instruction}");
+    
+    // Create builder
+    var builder = new CircularHolesBuilder(swApp, logger);
+    
+    // Example: Parse from instruction
+    // "create 6 holes 5mm diameter"
+    int count = 4;           // Default
+    double diameter = 5.0;   // Default
+    
+    // Simple parsing (in real implementation, use backend API response)
+    if (instruction.Contains("6 holes"))
+        count = 6;
+    if (instruction.Contains("5mm"))
+        diameter = 5.0;
+    
+    // Create hole pattern
+    bool success = builder.CreatePatternOnTopFace(
+        model, count, diameter
+    );
+    
+    if (success)
+    {
+        logger.Info($"✓ Hole pattern ready: {count} × {diameter}mm holes");
+    }
+    else
+    {
+        logger.Error("✗ Hole pattern creation failed");
+    }
+}
+```
+
+#### What Happens Internally
+
+When you call `CreatePatternOnTopFace(model, 4, 5.0)`:
+
+1. **Check for solid body**
+   ```csharp
+   if (no bodies exist)
+       BasePlateBuilder.EnsureBasePlate(model);  // Auto-create base
+   ```
+
+2. **Find top face**
+   ```csharp
+   IFace2 topFace = Selection.GetTopMostPlanarFace(model);
+   ```
+
+3. **Start sketch on top face**
+   ```csharp
+   SelectFace(topFace);
+   SketchManager.InsertSketch(true);
+   ```
+
+4. **Calculate hole positions (polar coordinates)**
+   ```csharp
+   angleStep = 360° / 4 = 90°
+   patternRadius = 80mm * 0.3 = 24mm
+   
+   for (i = 0; i < 4; i++)
+   {
+       angle = i * 90°  // 0°, 90°, 180°, 270°
+       x = radius * cos(angle)
+       y = radius * sin(angle)
+       CreateCircleByRadius(x, y, 0, diameter/2)
+   }
+   ```
+
+5. **Exit sketch**
+   ```csharp
+   SketchManager.InsertSketch(true);
+   ```
+
+6. **Cut-extrude through all**
+   ```csharp
+   FeatureManager.FeatureCut4(
+       true,  // Single direction
+       swEndCondThroughAll,  // Through all
+       ...
+   );
+   ```
+
+7. **Rebuild model**
+   ```csharp
+   model.ForceRebuild3(false);
+   ```
+
+All wrapped in `UndoScope` for automatic rollback!
+
+#### Pattern Geometry
+
+**Angle Calculation:**
+```
+angleStep = angleDeg / count
+
+Hole positions (counter-clockwise from +X):
+- Hole 1: 0°
+- Hole 2: angleStep
+- Hole 3: 2 * angleStep
+- Hole N: (N-1) * angleStep
+```
+
+**Examples:**
+```
+4 holes, 360°:  0°, 90°, 180°, 270°  (square)
+6 holes, 360°:  0°, 60°, 120°, 180°, 240°, 300°  (hexagon)
+3 holes, 180°:  0°, 90°, 180°  (semicircle arc)
+8 holes, 360°:  0°, 45°, 90°, ... (octagon)
+```
+
+**Cartesian Conversion:**
+```csharp
+x = patternRadiusMm * cos(angle * π/180)
+y = patternRadiusMm * sin(angle * π/180)
+```
+
+#### Error Handling
+
+The builder includes comprehensive error handling:
+
+**Parameter Validation:**
+- Count must be >= 1
+- Diameter must be > 0
+- Pattern radius should be < plateSizeMm/2
+
+**Operation Failures:**
+- No body found → creates base plate automatically
+- Top face not found → error logged, returns false
+- Sketch activation fails → rollback via UndoScope
+- Circle creation fails → rollback via UndoScope
+- Cut-extrude fails → rollback via UndoScope
+
+**Example Error Messages:**
+```
+[ERROR] Invalid hole count: 0 (must be >= 1)
+[ERROR] Invalid hole diameter: -5 mm (must be > 0)
+[ERROR] Failed to find topmost planar face
+[ERROR] Failed to create circle at hole position 3
+[ERROR] FeatureCut4 returned null - cut operation failed
+```
+
+#### Limitations
+
+**Design Assumptions:**
+- Circular pattern only (not linear or rectangular grids)
+- Pattern centered at model origin (0, 0)
+- Always cuts through entire part (Through All)
+- First hole at 0° (positive X axis)
+
+**SolidWorks Requirements:**
+- Must be Part document
+- Model must have at least one solid body (auto-creates if needed)
+- Top face must be planar and accessible
+
+**Pattern Constraints:**
+- Holes must fit within part boundaries
+- Pattern radius should be < part size / 2
+- Hole diameter should be reasonable for part size
+
+#### Best Practices
+
+**1. Choose Appropriate Pattern Radius:**
+```csharp
+// ✓ GOOD - Radius proportional to part size
+double radius = plateSizeMm * 0.3;  // 24mm for 80mm plate
+builder.CreatePatternOnTopFace(model, 4, 5.0, patternRadiusMm: radius);
+
+// ✗ POOR - Holes too close to edge
+builder.CreatePatternOnTopFace(model, 4, 5.0, patternRadiusMm: 38.0);  // Too large!
+```
+
+**2. Match Hole Size to Fasteners:**
+```csharp
+// ✓ CORRECT - Standard bolt sizes
+double m3 = 3.0;   // M3 screws
+double m4 = 4.0;   // M4 screws
+double m5 = 5.0;   // M5 bolts
+double m6 = 6.0;   // M6 bolts
+double m8 = 8.0;   // M8 bolts
+
+// Add clearance for loose fit
+double m5Clearance = 5.5;  // 5mm bolt + 0.5mm clearance
+```
+
+**3. Use Standard Patterns:**
+```csharp
+// ✓ GOOD - Common patterns
+count: 4, angleDeg: 360  // Square (mounting holes)
+count: 6, angleDeg: 360  // Hexagon (bolt circle)
+count: 3, angleDeg: 120  // Tripod (stability)
+
+// ✗ ODD - Uncommon patterns
+count: 7, angleDeg: 360  // Heptagon (why?)
+count: 5, angleDeg: 200  // Partial pentagon (unusual)
+```
+
+**4. Always Check Return Value:**
+```csharp
+// ✓ CORRECT
+if (!builder.CreatePatternOnTopFace(model, 4, 5.0))
+{
+    logger.Error("Failed - check logs");
+    return;
+}
+
+// ✗ RISKY
+builder.CreatePatternOnTopFace(model, 4, 5.0);  // Ignores failure
+```
+
+#### Parameter Guidelines
+
+**Count:**
+- 1 hole: Single hole at 0° (rarely useful)
+- 3 holes: Tripod pattern (stable, 120° spacing)
+- 4 holes: Square pattern (most common, 90° spacing)
+- 6 holes: Hexagon (strong, 60° spacing)
+- 8+ holes: Dense patterns (for aesthetics or strength)
+
+**Diameter:**
+- 2-3mm: Small screws, electronics
+- 4-6mm: Medium bolts, mechanical
+- 8-10mm: Large bolts, structural
+- 12mm+: Very large fasteners
+
+**Angle Span:**
+- 360°: Full circle (symmetric)
+- 180°: Semicircle (arc)
+- 120°: Tripod sector
+- 90°: Quarter circle
+
+**Pattern Radius:**
+- Small (0.2 × size): Holes close to center
+- Medium (0.3 × size): Balanced (default)
+- Large (0.4 × size): Holes near edge
+- Max: < 0.45 × size (keep holes on part)
+
+#### Future Enhancements (Not Yet Implemented)
+
+**Linear Hole Patterns:**
+```csharp
+// Future API:
+builder.CreateLinearPattern(model, 
+    rows: 3, cols: 4, 
+    spacingX: 10, spacingY: 10, 
+    diameterMm: 5.0
+);
+```
+
+**Rectangular Grid:**
+```csharp
+// Future API:
+builder.CreateRectangularGrid(model, 
+    count: 12, 
+    width: 60, height: 40, 
+    diameterMm: 4.0
+);
+```
+
+**Custom Depth (not through all):**
+```csharp
+// Future API:
+builder.CreatePatternOnTopFace(model, 
+    count: 4, diameterMm: 5.0, 
+    depthMm: 10.0  // 10mm deep blind holes
+);
+```
+
+**Countersink/Counterbore:**
+```csharp
+// Future API:
+builder.CreateCountersunkHoles(model, 
+    count: 4, diameterMm: 5.0, 
+    csinkAngle: 90, csinkDiameter: 10.0
+);
+```
+
 #### Future Enhancements (Not Yet Implemented)
 
 **Rectangular (Non-Square) Plates:**

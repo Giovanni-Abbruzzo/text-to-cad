@@ -32,6 +32,15 @@ namespace TextToCad.SolidWorksAddin.Models
         [JsonProperty("height_mm")]
         public double? HeightMm { get; set; }
 
+        [JsonProperty("width_mm")]
+        public double? WidthMm { get; set; }
+
+        [JsonProperty("radius_mm")]
+        public double? RadiusMm { get; set; }
+
+        [JsonProperty("angle_deg")]
+        public double? AngleDeg { get; set; }
+
         [JsonProperty("shape")]
         public string Shape { get; set; }
 
