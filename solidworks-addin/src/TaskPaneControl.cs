@@ -515,12 +515,11 @@ namespace TextToCad.SolidWorksAddin
                     return CreateBasePlate(swApp, model, parsed, logger);
                 }
                 
-                // Cylinder Creation (future)
-                else if (shape.Contains("cylinder") || shape.Contains("cylindrical"))
+                // Cylinder Creation (Sprint SW-5)
+                else if (shape.Contains("cylinder") || shape.Contains("cylindrical") || shape.Contains("circular"))
                 {
-                    AppendLog("⚠️ Cylinder creation not yet implemented (coming in Sprint SW-4+)", Color.Orange);
-                    Logger.Info("Cylinder builder not yet available");
-                    return false;
+                    AppendLog("Detected: Cylinder creation", Color.Blue);
+                    return CreateCylinder(swApp, model, parsed, logger);
                 }
                 
                 // Hole Pattern (Sprint SW-4)
@@ -534,7 +533,7 @@ namespace TextToCad.SolidWorksAddin
                 else
                 {
                     AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
-                    AppendLog("Currently supported: base plates, circular hole patterns", Color.Gray);
+                    AppendLog("Currently supported: base plates, cylinders, circular hole patterns", Color.Gray);
                     System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Unrecognized action/shape: {action}/{shape}");
                     return false;
                 }
@@ -652,6 +651,48 @@ namespace TextToCad.SolidWorksAddin
             {
                 AppendLog($"❌ Circular hole pattern creation failed: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"CreateCircularHoles exception: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create an extruded cylinder using ExtrudedCylinderBuilder
+        /// </summary>
+        private bool CreateCylinder(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                // Extract parameters from parsed data
+                var data = parsed.ParametersData;
+                if (data == null)
+                {
+                    AppendLog("⚠️ No parameters data for cylinder", Color.Orange);
+                    return false;
+                }
+
+                // Extract dimensions with defaults
+                double diameterMm = data.DiameterMm ?? 20.0;  // Default: 20mm diameter
+                double heightMm = data.HeightMm ?? 10.0;      // Default: 10mm height
+
+                AppendLog($"Creating cylinder:", Color.Blue);
+                AppendLog($"  Diameter: {diameterMm}mm, Height: {heightMm}mm", Color.DarkGray);
+
+                // Create the builder
+                var builder = new Builders.ExtrudedCylinderBuilder(swApp, logger);
+
+                // Execute!
+                bool success = builder.CreateCylinderOnTopPlane(model, diameterMm, heightMm);
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Cylinder creation failed: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"CreateCylinder exception: {ex.Message}");
                 return false;
             }
         }
