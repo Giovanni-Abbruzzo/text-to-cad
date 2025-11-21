@@ -536,11 +536,16 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     # This is our standard convention - dimensions are always in millimeters
     
     # Height extraction (height, tall, length, depth)
+    # IMPORTANT: Order matters! More specific patterns first.
     height_mm = None
     height_patterns = [
-        r'(?:height|tall|length|depth)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s*(?:height|tall|length|depth)',
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s*(?:high|long|deep)'
+        # Pattern 1: Height keyword followed by number (most explicit)
+        # Examples: "height 50mm", "tall 30", "depth of 25mm"
+        r'(?:height|tall|length|depth)\s+(?:of\s+)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
+        
+        # Pattern 2: Number directly before height keyword with optional "mm"
+        # Examples: "50mm tall", "30 high", "25mm height"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:tall|high|long|deep)(?:\s|$)',
     ]
     
     for pattern in height_patterns:
@@ -553,11 +558,20 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
                 continue
     
     # Diameter extraction
+    # IMPORTANT: Order matters! More specific patterns first.
     diameter_mm = None
     diameter_patterns = [
+        # Pattern 1: Number directly before "diameter/dia/width/wide" with optional "mm"
+        # Examples: "25mm diameter", "30 diameter", "20mm wide"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:diameter|dia|width|wide)(?:\s|$)',
+        
+        # Pattern 2: "diameter/dia/width/wide" followed by number
+        # Examples: "diameter 25mm", "width of 30mm"
         r'(?:diameter|dia|width|wide)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s*(?:diameter|dia|width|wide)',
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s*(?:across|around)'
+        
+        # Pattern 3: "across" or "around" (typically indicates diameter)
+        # Examples: "25mm across", "30 around"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:across|around)(?:\s|$)'
     ]
     
     for pattern in diameter_patterns:

@@ -1563,6 +1563,390 @@ builder.CreateCountersunkHoles(model,
 );
 ```
 
+---
+
+### ExtrudedCylinderBuilder - Cylindrical Boss Features
+
+Creates extruded cylinders (circular boss-extrude) on the Top Plane. Perfect for shafts, pins, mounting posts, and cylindrical features.
+
+**What It Creates:**
+- Circle sketch on Top Plane
+- Boss-extrude to specified height
+- Standalone feature (no base plate needed)
+- Default: 20mm diameter, 10mm height
+
+**Smart Behavior:**
+- Works on empty models
+- Can combine with other features
+- Validates diameter and height
+- Uses UndoScope for automatic rollback
+
+#### Basic Usage
+
+```csharp
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+
+// Create logger
+ILogger logger = new Utils.Logger(msg => Console.WriteLine(msg));
+
+// Create builder
+var builder = new ExtrudedCylinderBuilder(swApp, logger);
+
+// Create default cylinder (20mm × 10mm)
+bool success = builder.CreateCylinderOnTopPlane(model);
+
+// Create custom cylinder
+success = builder.CreateCylinderOnTopPlane(
+    model,
+    diameterMm: 25.0,  // 25mm diameter
+    heightMm: 15.0     // 15mm height
+);
+```
+
+#### Common Cylinder Types
+
+**Small Pin:**
+```csharp
+builder.CreateCylinderOnTopPlane(
+    model, 
+    diameterMm: 5.0,   // 5mm pin
+    heightMm: 10.0     // 10mm tall
+);
+```
+
+**Medium Shaft:**
+```csharp
+builder.CreateCylinderOnTopPlane(
+    model, 
+    diameterMm: 20.0,  // 20mm shaft
+    heightMm: 50.0     // 50mm tall
+);
+```
+
+**Large Post:**
+```csharp
+builder.CreateCylinderOnTopPlane(
+    model, 
+    diameterMm: 40.0,  // 40mm post
+    heightMm: 100.0    // 100mm tall
+);
+```
+
+**Thin Disc:**
+```csharp
+builder.CreateCylinderOnTopPlane(
+    model, 
+    diameterMm: 50.0,  // 50mm wide
+    heightMm: 3.0      // 3mm thick disc
+);
+```
+
+#### Integration with Task Pane
+
+```csharp
+// In TaskPaneControl.cs - Execute button handler
+private async void btnExecute_Click(object sender, EventArgs e)
+{
+    try
+    {
+        var response = await ApiClient.ProcessInstructionAsync(request);
+        ISldWorks swApp = GetSolidWorksApp();
+        IModelDoc2 model = swApp.ActiveDoc as IModelDoc2;
+        
+        ILogger logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
+        
+        var parsed = response.ParsedParameters;
+        
+        // If instruction is to create cylinder
+        if (parsed.ParametersData?.Shape?.ToLower().Contains("cylinder") == true)
+        {
+            var builder = new ExtrudedCylinderBuilder(swApp, logger);
+            
+            double diameter = parsed.ParametersData?.DiameterMm ?? 20.0;
+            double height = parsed.ParametersData?.HeightMm ?? 10.0;
+            
+            bool success = builder.CreateCylinderOnTopPlane(model, diameter, height);
+            
+            if (success)
+            {
+                AppendLog("✓ Cylinder created successfully", Color.Green);
+            }
+        }
+    }
+    catch (Exception ex)
+    {
+        AppendLog($"Error: {ex.Message}", Color.Red);
+    }
+}
+```
+
+#### Complete Example - From Instruction to Cylinder
+
+```csharp
+using System;
+using TextToCad.SolidWorksAddin.Builders;
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Interfaces;
+using SolidWorks.Interop.sldworks;
+
+public void ExecuteCylinderInstruction(
+    ISldWorks swApp,
+    IModelDoc2 model,
+    string instruction,
+    ILogger logger)
+{
+    logger.Info($"Executing: {instruction}");
+    
+    // Create builder
+    var builder = new ExtrudedCylinderBuilder(swApp, logger);
+    
+    // Example: Parse from instruction
+    // "create a cylinder 25mm diameter 30mm tall"
+    double diameter = 20.0;  // Default
+    double height = 10.0;    // Default
+    
+    // Simple parsing (in real implementation, use backend API response)
+    if (instruction.Contains("25mm diameter"))
+        diameter = 25.0;
+    if (instruction.Contains("30mm tall"))
+        height = 30.0;
+    
+    // Create cylinder
+    bool success = builder.CreateCylinderOnTopPlane(model, diameter, height);
+    
+    if (success)
+    {
+        logger.Info($"✓ Cylinder ready: {diameter}mm × {height}mm");
+    }
+    else
+    {
+        logger.Error("✗ Cylinder creation failed");
+    }
+}
+```
+
+#### What Happens Internally
+
+When you call `CreateCylinderOnTopPlane(model, 25.0, 15.0)`:
+
+1. **Select Top Plane**
+   ```csharp
+   Selection.SelectPlaneByName(_sw, model, "Top Plane");
+   ```
+
+2. **Start sketch**
+   ```csharp
+   model.SketchManager.InsertSketch(true);
+   ```
+
+3. **Draw circle at origin**
+   ```csharp
+   double radiusM = Units.MmToM(25.0 / 2.0);  // 12.5mm → meters
+   CreateCircleByRadius(0, 0, 0, radiusM);
+   ```
+
+4. **Exit sketch**
+   ```csharp
+   model.SketchManager.InsertSketch(true);
+   ```
+
+5. **Boss-extrude**
+   ```csharp
+   double heightM = Units.MmToM(15.0);  // Convert to meters
+   FeatureExtrusion2(
+       true,  // Single direction
+       false, // Don't flip (extrude up)
+       swEndCondBlind,  // Blind extrusion
+       heightM,  // Depth
+       ...
+   );
+   ```
+
+6. **Rebuild model**
+   ```csharp
+   model.ForceRebuild3(false);
+   ```
+
+All wrapped in `UndoScope` for automatic rollback!
+
+#### Typical Dimensions
+
+**Standard Metric Shafts:**
+- M3: 3mm diameter
+- M5: 5mm diameter
+- M8: 8mm diameter
+- M10: 10mm diameter
+- M12: 12mm diameter
+- M16: 16mm diameter
+- M20: 20mm diameter
+
+**Common Pin Sizes:**
+- 2mm × 6mm (small dowel pin)
+- 3mm × 8mm (medium dowel pin)
+- 5mm × 10mm (large dowel pin)
+- 6mm × 20mm (alignment pin)
+
+**Mounting Posts:**
+- 10mm × 20mm (short standoff)
+- 15mm × 30mm (medium standoff)
+- 20mm × 50mm (tall standoff)
+
+#### Error Handling
+
+The builder includes comprehensive error handling:
+
+**Parameter Validation:**
+- Diameter must be > 0
+- Height must be > 0
+
+**Operation Failures:**
+- Wrong document type → error logged, returns false
+- Plane selection fails → error logged, returns false
+- Circle creation fails → rollback via UndoScope
+- Extrusion fails → rollback via UndoScope
+
+**Example Error Messages:**
+```
+[ERROR] Invalid diameter: 0 mm (must be > 0)
+[ERROR] Invalid height: -10 mm (must be > 0)
+[ERROR] Failed to select Top Plane
+[ERROR] CreateCircleByRadius returned null - circle creation failed
+[ERROR] FeatureExtrusion2 returned null - extrusion failed
+```
+
+#### Limitations
+
+**Design Assumptions:**
+- Always creates on Top Plane
+- Circle centered at world origin (0, 0)
+- Extrudes upward (+Z direction)
+- Single direction extrusion only
+
+**SolidWorks Requirements:**
+- Must be Part document
+- Can work on empty model (no base needed)
+
+**Geometry Constraints:**
+- Diameter and height must be reasonable
+- Very small dimensions (<0.1mm) may fail
+- Very large dimensions (>1000mm) may be slow
+
+#### Best Practices
+
+**1. Match Dimensions to Purpose:**
+```csharp
+// ✓ GOOD - Appropriate for application
+double pinDiameter = 5.0;    // M5 pin
+double shaftDiameter = 20.0; // 20mm shaft
+double postDiameter = 15.0;  // 15mm standoff
+
+// ✗ POOR - Unusual sizes
+double weirdDiameter = 7.3;  // Non-standard
+```
+
+**2. Consider Height-to-Diameter Ratio:**
+```csharp
+// ✓ GOOD - Stable proportions
+builder.CreateCylinderOnTopPlane(model, 20.0, 50.0);  // 2.5:1 ratio
+
+// ✗ RISKY - Unstable (too tall and thin)
+builder.CreateCylinderOnTopPlane(model, 5.0, 200.0);  // 40:1 ratio
+```
+
+**3. Use Standard Sizes When Possible:**
+```csharp
+// ✓ GOOD - Standard metric sizes
+double[] standardDiameters = { 3, 5, 8, 10, 12, 16, 20, 25 };
+
+// ✗ ODD - Non-standard sizes harder to manufacture
+double oddDiameter = 13.7;
+```
+
+**4. Always Check Return Value:**
+```csharp
+// ✓ CORRECT
+if (!builder.CreateCylinderOnTopPlane(model, 20.0, 30.0))
+{
+    logger.Error("Failed - check logs");
+    return;
+}
+
+// ✗ RISKY
+builder.CreateCylinderOnTopPlane(model, 20.0, 30.0);  // Ignores failure
+```
+
+#### Combining with Other Features
+
+**Cylinder + Holes (Mounting Post):**
+```csharp
+// 1. Create cylinder
+var cylBuilder = new ExtrudedCylinderBuilder(swApp, logger);
+cylBuilder.CreateCylinderOnTopPlane(model, 20.0, 30.0);
+
+// 2. Add mounting holes
+var holeBuilder = new CircularHolesBuilder(swApp, logger);
+holeBuilder.CreatePatternOnTopFace(model, 4, 3.0);
+```
+
+**Base Plate + Cylinder (Assembly Base):**
+```csharp
+// 1. Create base plate
+var plateBuilder = new BasePlateBuilder(swApp, logger);
+plateBuilder.EnsureBasePlate(model, 80.0, 6.0);
+
+// 2. Add cylinder on top (note: would need face selection enhancement)
+// For now, cylinder creates on Top Plane independently
+var cylBuilder = new ExtrudedCylinderBuilder(swApp, logger);
+cylBuilder.CreateCylinderOnTopPlane(model, 15.0, 40.0);
+```
+
+#### Future Enhancements (Not Yet Implemented)
+
+**Position on Existing Face:**
+```csharp
+// Future API:
+builder.CreateCylinderOnFace(model, face, 
+    diameterMm: 20.0, heightMm: 30.0,
+    offsetX: 10.0, offsetY: 10.0);
+```
+
+**Hollow Cylinder (Pipe):**
+```csharp
+// Future API:
+builder.CreateHollowCylinder(model, 
+    outerDiameter: 25.0, 
+    innerDiameter: 20.0, 
+    heightMm: 50.0);
+```
+
+**Tapered Cylinder (Cone):**
+```csharp
+// Future API:
+builder.CreateTaperedCylinder(model, 
+    bottomDiameter: 30.0, 
+    topDiameter: 20.0, 
+    heightMm: 40.0);
+```
+
+**Two-Direction Extrude:**
+```csharp
+// Future API:
+builder.CreateCylinder(model, 
+    diameterMm: 20.0, 
+    heightUpMm: 15.0, 
+    heightDownMm: 5.0);
+```
+
+**Custom Plane:**
+```csharp
+// Future API:
+builder.CreateCylinderOnPlane(model, "Front Plane", 
+    diameterMm: 20.0, heightMm: 30.0);
+```
+
+---
+
 #### Future Enhancements (Not Yet Implemented)
 
 **Rectangular (Non-Square) Plates:**

@@ -92,6 +92,8 @@
     <Compile Include="src\Builders\BasePlateBuilder.cs" />
     <!-- Sprint SW-4: Hole Pattern Builders -->
     <Compile Include="src\Builders\CircularHolesBuilder.cs" />
+    <!-- Sprint SW-5: Cylinder Builders -->
+    <Compile Include="src\Builders\ExtrudedCylinderBuilder.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />
