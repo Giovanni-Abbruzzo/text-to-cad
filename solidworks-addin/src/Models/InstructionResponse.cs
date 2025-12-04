@@ -35,14 +35,27 @@ namespace TextToCad.SolidWorksAddin.Models
 
         /// <summary>
         /// Structured CAD parameters extracted from the instruction
+        /// For backward compatibility, this is the first operation if multiple operations exist
         /// </summary>
         [JsonProperty("parsed_parameters")]
         public ParsedParameters ParsedParameters { get; set; }
 
         /// <summary>
+        /// Array of all operations for multi-line instructions
+        /// Each element has the same structure as ParsedParameters
+        /// </summary>
+        [JsonProperty("operations")]
+        public List<ParsedParameters> Operations { get; set; } = new List<ParsedParameters>();
+
+        /// <summary>
         /// Check if the response used AI parsing
         /// </summary>
         public bool IsAIParsed => Source?.ToLower() == "ai";
+
+        /// <summary>
+        /// Check if this response contains multiple operations
+        /// </summary>
+        public bool IsMultiOperation => Operations != null && Operations.Count > 1;
 
         /// <summary>
         /// Get a formatted plan string for display

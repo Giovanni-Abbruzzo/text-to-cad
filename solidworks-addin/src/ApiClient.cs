@@ -141,6 +141,16 @@ namespace TextToCad.SolidWorksAddin
             // Read response
             string responseBody = await response.Content.ReadAsStringAsync();
             Logger.Debug($"Response status: {response.StatusCode}\nBody: {responseBody}");
+            
+            // DEBUG: Check if operations array exists in raw JSON
+            if (responseBody.Contains("\"operations\""))
+            {
+                Logger.Info("✓ Raw JSON contains 'operations' field");
+            }
+            else
+            {
+                Logger.Warning("⚠️ Raw JSON does NOT contain 'operations' field");
+            }
 
             // Check for errors
             if (!response.IsSuccessStatusCode)
@@ -168,6 +178,25 @@ namespace TextToCad.SolidWorksAddin
             try
             {
                 var result = JsonConvert.DeserializeObject<TResponse>(responseBody);
+                
+                // DEBUG: Log operations array for InstructionResponse
+                if (result is InstructionResponse instructionResponse)
+                {
+                    if (instructionResponse.Operations != null)
+                    {
+                        Logger.Info($"✓ Deserialized InstructionResponse with {instructionResponse.Operations.Count} operations");
+                        for (int i = 0; i < instructionResponse.Operations.Count; i++)
+                        {
+                            var op = instructionResponse.Operations[i];
+                            Logger.Info($"  Op {i + 1}: Action={op?.Action}, Shape={op?.ParametersData?.Shape}");
+                        }
+                    }
+                    else
+                    {
+                        Logger.Warning("⚠️ InstructionResponse.Operations is NULL after deserialization");
+                    }
+                }
+                
                 return result;
             }
             catch (JsonException ex)

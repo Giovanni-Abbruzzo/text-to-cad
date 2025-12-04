@@ -448,9 +448,10 @@ namespace TextToCad.SolidWorksAddin
         /// <summary>
         /// Execute the actual CAD operation based on parsed API response.
         /// This is where natural language gets converted to real geometry!
+        /// Supports multi-operation instructions (multiple lines).
         /// </summary>
         /// <param name="response">Parsed instruction response from backend</param>
-        /// <returns>True if geometry was created; false if skipped or failed</returns>
+        /// <returns>True if all operations succeeded; false if any failed</returns>
         private bool ExecuteCADOperation(InstructionResponse response)
         {
             try
@@ -492,15 +493,112 @@ namespace TextToCad.SolidWorksAddin
                 // Create logger that forwards to UI
                 var logger = new Utils.Logger(msg => AppendLog(msg, Color.DarkGray));
 
-                // Parse the action and parameters
-                var parsed = response.ParsedParameters;
-                if (parsed == null)
+                // Check if this is a multi-operation instruction
+                // Debug: Log operations array status
+                if (response.Operations != null)
                 {
-                    AppendLog("⚠️ No parameters parsed from instruction", Color.Orange);
-                    System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: ParsedParameters is null");
-                    return false;
+                    AppendLog($"Operations array present: {response.Operations.Count} items", Color.DarkGray);
                 }
+                else
+                {
+                    AppendLog("Operations array is NULL", Color.Orange);
+                }
+                
+                if (response.IsMultiOperation)
+                {
+                    AppendLog($"🔄 Multi-operation instruction: {response.Operations.Count} operations", Color.Blue);
+                    
+                    bool allSucceeded = true;
+                    for (int i = 0; i < response.Operations.Count; i++)
+                    {
+                        var operation = response.Operations[i];
+                        AppendLog($"\n▶ Operation {i + 1}/{response.Operations.Count}:", Color.DarkBlue);
+                        
+                        // Debug: Log operation details
+                        if (operation != null)
+                        {
+                            AppendLog($"  Action: {operation.Action}, Shape: {operation.ParametersData?.Shape}", Color.DarkGray);
+                        }
+                        else
+                        {
+                            AppendLog("  ERROR: Operation is NULL", Color.Red);
+                            continue;
+                        }
+                        
+                        try
+                        {
+                            bool success = ExecuteSingleOperation(swApp, model, operation, logger);
+                            
+                            if (success)
+                            {
+                                AppendLog($"✓ Operation {i + 1} completed", Color.Green);
+                            }
+                            else
+                            {
+                                AppendLog($"✗ Operation {i + 1} failed", Color.Red);
+                                allSucceeded = false;
+                                // Continue with remaining operations even if one fails
+                            }
+                        }
+                        catch (Exception opEx)
+                        {
+                            AppendLog($"✗ Operation {i + 1} threw exception: {opEx.Message}", Color.Red);
+                            System.Diagnostics.Debug.WriteLine($"Operation {i + 1} exception: {opEx.Message}\n{opEx.StackTrace}");
+                            allSucceeded = false;
+                            // Continue with remaining operations even if one throws
+                        }
+                    }
+                    
+                    if (allSucceeded)
+                    {
+                        AppendLog($"\n✓ All {response.Operations.Count} operations completed successfully!", Color.Green);
+                    }
+                    else
+                    {
+                        AppendLog($"\n⚠️ Some operations failed - check log above", Color.Orange);
+                    }
+                    
+                    return allSucceeded;
+                }
+                else
+                {
+                    // Single operation - use backward compatible path
+                    var parsed = response.ParsedParameters;
+                    if (parsed == null)
+                    {
+                        AppendLog("⚠️ No parameters parsed from instruction", Color.Orange);
+                        System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: ParsedParameters is null");
+                        return false;
+                    }
+                    
+                    return ExecuteSingleOperation(swApp, model, parsed, logger);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ CAD execution error: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation exception: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                return false;
+            }
+        }
 
+        /// <summary>
+        /// Execute a single CAD operation by dispatching to the appropriate builder
+        /// </summary>
+        /// <param name="swApp">SolidWorks application</param>
+        /// <param name="model">Active model document</param>
+        /// <param name="parsed">Parsed parameters for this operation</param>
+        /// <param name="logger">Logger instance</param>
+        /// <returns>True if operation succeeded; false otherwise</returns>
+        private bool ExecuteSingleOperation(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
                 string action = parsed.Action?.ToLower() ?? "";
                 string shape = parsed.ParametersData?.Shape?.ToLower() ?? "";
 
@@ -509,7 +607,7 @@ namespace TextToCad.SolidWorksAddin
                 // === DISPATCH TO APPROPRIATE BUILDER ===
 
                 // Base Plate Creation
-                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular"))
+                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular") || shape.Contains("base_plate"))
                 {
                     AppendLog("Detected: Base Plate creation", Color.Blue);
                     return CreateBasePlate(swApp, model, parsed, logger);
@@ -534,15 +632,14 @@ namespace TextToCad.SolidWorksAddin
                 {
                     AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
                     AppendLog("Currently supported: base plates, cylinders, circular hole patterns", Color.Gray);
-                    System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Unrecognized action/shape: {action}/{shape}");
+                    System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation: Unrecognized action/shape: {action}/{shape}");
                     return false;
                 }
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ CAD execution error: {ex.Message}", Color.Red);
-                System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation exception: {ex.Message}");
-                System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
+                AppendLog($"❌ Operation error: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation exception: {ex.Message}");
                 return false;
             }
         }
