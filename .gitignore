@@ -12,3 +12,11 @@ frontend/.env
 .DS_Store
 dist/
 out/
+
+# Documentation (thesis/report writing - not for codebase)
+docs/thesis/
+!docs/thesis/README.md
+
+# Testing files (development only - not for codebase)
+testing/
+!testing/README.md

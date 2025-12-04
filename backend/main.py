@@ -217,12 +217,16 @@ class InstructionResponse(BaseModel):
         source (str): Parsing source - "ai" or "rule"
         plan (List[str]): Human-readable plan steps describing what will be done
         parsed_parameters (Dict): Extracted CAD parameters (always present, with nulls where unknown)
+                                  For backward compatibility, this is the first operation if multiple
+        operations (List[Dict]): Array of all operations (supports multi-line instructions)
+                                 Each dict has same structure as parsed_parameters
     """
     schema_version: str = "1.0"
     instruction: str
     source: str  # "ai" or "rule"
     plan: List[str]
     parsed_parameters: Dict
+    operations: List[Dict] = []  # New field for multi-operation support
 
 
 class CommandResponse(BaseModel):
@@ -370,6 +374,24 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
                 desc += f" Ø{diameter_mm} mm"
             if height_mm:
                 desc += f" × {height_mm} mm height"
+            plan.append(desc)
+        elif shape == "base_plate":
+            desc = "Create base plate"
+            if diameter_mm:  # Using diameter as size for square plates
+                desc += f" {diameter_mm} mm"
+            if height_mm:
+                desc += f" × {height_mm} mm thick"
+            plan.append(desc)
+        elif shape == "hole":
+            desc = "Create"
+            if count and count > 1:
+                desc += f" {count} holes"
+            else:
+                desc += " hole"
+            if diameter_mm:
+                desc += f" Ø{diameter_mm} mm"
+            if pattern and pattern.get("type"):
+                desc += f" in {pattern.get('type')} pattern"
             plan.append(desc)
         elif shape:
             desc = f"Create {shape}"
@@ -525,27 +547,29 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     shape = None
     if any(word in instruction_lower for word in ["cylinder", "cylindrical", "round"]):
         shape = "cylinder"
-    elif any(word in instruction_lower for word in ["block", "box", "cube", "rectangular"]):
-        shape = "block"
+    elif any(word in instruction_lower for word in ["plate", "base plate", "base", "block", "box", "cube", "rectangular"]):
+        shape = "base_plate"
     elif any(word in instruction_lower for word in ["sphere", "ball", "spherical"]):
         shape = "sphere"
+    elif any(word in instruction_lower for word in ["hole", "holes"]):
+        shape = "hole"
     
     # Dimension extraction using regex patterns
     # Pattern: number followed by optional unit (mm, millimeter, etc.)
     # NOTE: All dimensions are stored with *_mm suffix to indicate millimeters as default unit
     # This is our standard convention - dimensions are always in millimeters
     
-    # Height extraction (height, tall, length, depth)
+    # Height extraction (height, tall, length, depth, thickness)
     # IMPORTANT: Order matters! More specific patterns first.
     height_mm = None
     height_patterns = [
         # Pattern 1: Height keyword followed by number (most explicit)
-        # Examples: "height 50mm", "tall 30", "depth of 25mm"
-        r'(?:height|tall|length|depth)\s+(?:of\s+)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
+        # Examples: "height 50mm", "tall 30", "depth of 25mm", "thickness 6mm"
+        r'(?:height|tall|length|depth|thickness|thick)\s+(?:of\s+)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
         
         # Pattern 2: Number directly before height keyword with optional "mm"
-        # Examples: "50mm tall", "30 high", "25mm height"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:tall|high|long|deep)(?:\s|$)',
+        # Examples: "50mm tall", "30 high", "25mm height", "6mm thick"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:tall|high|long|deep|thick|thickness)(?:\s|$)',
     ]
     
     for pattern in height_patterns:
@@ -569,7 +593,11 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         # Examples: "diameter 25mm", "width of 30mm"
         r'(?:diameter|dia|width|wide)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
         
-        # Pattern 3: "across" or "around" (typically indicates diameter)
+        # Pattern 3: Number before shape name (cylinder, sphere, plate) - implies diameter/size
+        # Examples: "15mm cylinder", "20 sphere", "80mm plate"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:cylinder|sphere|pipe|tube|plate|base)(?:\s|$)',
+        
+        # Pattern 4: "across" or "around" (typically indicates diameter)
         # Examples: "25mm across", "30 around"
         r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:across|around)(?:\s|$)'
     ]
@@ -716,39 +744,76 @@ Mount /outputs if not already.
     logger.info(f"Processing instruction: '{request.instruction}' (use_ai={request.use_ai})")
     
     try:
-        # Use the refactored parsing helper
-        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
-        parsed_result = parse_result["result"]
-        source = parse_result["source"]
+        # Split instruction into multiple operations
+        # Supports both newline-separated AND same-line multiple commands
+        # Examples: 
+        #   "create base plate\ncreate cylinder" -> 2 operations
+        #   "create base plate create cylinder" -> 2 operations
         
-        # Serialize parameters for database storage
-        parameters_json = json.dumps(parsed_result.get("parameters", {}))
+        # First split by newlines
+        lines = [line.strip() for line in request.instruction.split('\n') if line.strip()]
         
-        # Create and save Command record to database
-        logger.info(f"Saving command to database: action='{parsed_result.get('action')}'")
+        # Then split each line by multiple "create" keywords
+        instruction_lines = []
+        for line in lines:
+            # Use regex to split on "create" while keeping it
+            # Pattern: split before "create" (case-insensitive) when not at start
+            import re
+            parts = re.split(r'\s+(?=create\s)', line, flags=re.IGNORECASE)
+            instruction_lines.extend([p.strip() for p in parts if p.strip()])
         
-        db_command = Command(
-            prompt=request.instruction,
-            action=parsed_result.get("action", "unknown"),
-            parameters=parameters_json
-        )
+        if len(instruction_lines) > 1:
+            logger.info(f"Multi-line instruction detected: {len(instruction_lines)} operations")
         
-        db.add(db_command)
-        db.commit()
-        db.refresh(db_command)  # Refresh to get auto-generated ID and timestamp
+        # Parse each line as a separate operation
+        all_operations = []
+        all_plan_steps = []
+        sources = []
         
-        logger.info(f"Command saved successfully with ID: {db_command.id} (source: {source})")
+        for i, line in enumerate(instruction_lines, 1):
+            logger.info(f"Parsing operation {i}/{len(instruction_lines)}: '{line}'")
+            
+            # Parse this line
+            parse_result = parse_instruction_internal(line, request.use_ai)
+            parsed_result = parse_result["result"]
+            source = parse_result["source"]
+            
+            all_operations.append(parsed_result)
+            sources.append(source)
+            
+            # Generate plan for this operation
+            plan_steps = generate_plan_from_parsed(parsed_result)
+            all_plan_steps.extend(plan_steps)
+            
+            # Save each operation to database
+            parameters_json = json.dumps(parsed_result.get("parameters", {}))
+            
+            db_command = Command(
+                prompt=line,  # Save individual line
+                action=parsed_result.get("action", "unknown"),
+                parameters=parameters_json
+            )
+            
+            db.add(db_command)
+            db.commit()
+            db.refresh(db_command)
+            
+            logger.info(f"Operation {i} saved with ID: {db_command.id} (source: {source})")
         
-        # Generate human-readable plan
-        plan = generate_plan_from_parsed(parsed_result)
+        # Determine overall source (if any AI, mark as AI)
+        overall_source = "ai" if "ai" in sources else "rule"
+        
+        # For backward compatibility, parsed_parameters is the first operation
+        first_operation = all_operations[0] if all_operations else {"action": "unknown", "parameters": {}}
         
         # Create normalized response
         response = InstructionResponse(
             schema_version="1.0",
             instruction=request.instruction,
-            source=source,
-            plan=plan,
-            parsed_parameters=parsed_result
+            source=overall_source,
+            plan=all_plan_steps,
+            parsed_parameters=first_operation,
+            operations=all_operations  # New: all operations
         )
         
         logger.info(f"Successfully processed instruction with ID: {db_command.id} using {source} parsing")

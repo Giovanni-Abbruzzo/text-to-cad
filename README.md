@@ -1135,3 +1135,90 @@ The geometry system is designed for easy extension:
 - **Pattern Enhancements**: Grid patterns, custom spacing
 - **Assembly Support**: Multi-part CAD assemblies
 - **Material Properties**: Density, material specifications for export
+
+## Multi-Operation Support
+
+The Text-to-CAD system now supports **multi-operation instructions**, allowing you to execute multiple CAD commands from a single natural language request. This enables creating complex assemblies with a single instruction.
+
+### Features
+
+- **Multi-Line Instructions**: Separate operations with newlines
+- **Single-Line Instructions**: Multiple "create" commands in one line
+- **Order-Independent**: Operations execute in the specified order, regardless of shape type
+- **Sequential Execution**: Each operation runs one after another
+- **Error Tolerance**: Failed operations don't stop subsequent ones
+- **Progress Reporting**: Clear status for each operation
+
+### Usage Examples
+
+#### Multi-Line Format
+```
+create 100mm base plate 5mm thick
+create a 20mm cylinder 40mm tall
+create 4 holes with 3mm diameter
+```
+
+#### Single-Line Format
+```
+create 100mm base plate 5mm thick create a 20mm cylinder 40mm tall create 4 holes with 3mm diameter
+```
+
+Both formats produce the same result: a base plate, cylinder, and holes executed sequentially.
+
+### API Response Format
+
+The backend returns an `operations` array with all parsed operations:
+
+```json
+{
+  "schema_version": "1.0",
+  "instruction": "create 100mm base plate 5mm thick create a 20mm cylinder 40mm tall",
+  "source": "rule",
+  "plan": [
+    "Create base plate 100.0 mm × 5.0 mm thick",
+    "Create cylinder Ø20.0 mm × 40.0 mm height"
+  ],
+  "parsed_parameters": {
+    "action": "create_feature",
+    "parameters": {
+      "shape": "base_plate",
+      "diameter_mm": 100.0,
+      "height_mm": 5.0
+    }
+  },
+  "operations": [
+    {
+      "action": "create_feature",
+      "parameters": {
+        "shape": "base_plate",
+        "diameter_mm": 100.0,
+        "height_mm": 5.0
+      }
+    },
+    {
+      "action": "create_feature",
+      "parameters": {
+        "shape": "cylinder",
+        "diameter_mm": 20.0,
+        "height_mm": 40.0
+      }
+    }
+  ]
+}
+```
+
+### SolidWorks Add-In Integration
+
+The SolidWorks add-in automatically detects and executes multi-operation instructions:
+
+1. **Detection**: Checks if `operations` array has multiple items
+2. **Sequential Execution**: Loops through each operation in order
+3. **Progress Reporting**: Shows status for each operation
+4. **Completion Summary**: Reports how many operations succeeded
+
+### Backward Compatibility
+
+Single-operation instructions continue to work exactly as before:
+- `parsed_parameters` field maintained for compatibility
+- Single-operation code path unchanged
+- All existing functionality preserved

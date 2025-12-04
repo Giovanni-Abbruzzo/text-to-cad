@@ -102,14 +102,12 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            _log.Info($"Ensuring base plate exists (size={sizeMm}mm, thickness={thicknessMm}mm)");
+            _log.Info($"Creating base plate (size={sizeMm}mm, thickness={thicknessMm}mm)");
 
-            // Check if model already has solid bodies
-            if (HasSolidBodies(model))
-            {
-                _log.Info("Model already has bodies; skipping base plate creation");
-                return true;  // Not an error - plate already exists
-            }
+            // NOTE: Removed the HasSolidBodies check to support multi-operation instructions
+            // Previously, this method would skip creation if ANY body existed,
+            // which prevented creating a base plate after creating other features (e.g. cylinder).
+            // Now it always creates a new base plate as requested.
 
             // Use UndoScope for safe rollback on failure
             using (var scope = new UndoScope(model, "Create Base Plate", _log))
