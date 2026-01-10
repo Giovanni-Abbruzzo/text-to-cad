@@ -166,13 +166,14 @@ class InstructionRequest(BaseModel):
         Raises:
             ValueError: If instruction is blank, too short, or only whitespace
         """
-        if not v or not v.strip():
-            raise ValueError("Instruction cannot be blank or empty")
-        
-        if len(v.strip()) < 3:
-            raise ValueError("Instruction must be at least 3 characters long")
-            
-        return v.strip()
+        if not v:
+            raise ValueError("Instruction cannot be empty.")
+
+        cleaned = v.strip()
+        if len(cleaned) < 3:
+            raise ValueError("Instruction cannot be empty.")
+
+        return cleaned
 
 
 class PatternInfo(BaseModel):
@@ -1078,11 +1079,14 @@ class GenerateModelRequest(BaseModel):
         Raises:
             ValueError: If instruction is blank, too short, or only whitespace
         """
-        if not v or not v.strip():
-            raise ValueError("Instruction cannot be blank")
-        if len(v.strip()) < 3:
-            raise ValueError("Instruction must be at least 3 characters long")
-        return v.strip()
+        if not v:
+            raise ValueError("Instruction cannot be empty.")
+
+        cleaned = v.strip()
+        if len(cleaned) < 3:
+            raise ValueError("Instruction cannot be empty.")
+
+        return cleaned
 
 
 class GenerateModelResponse(BaseModel):

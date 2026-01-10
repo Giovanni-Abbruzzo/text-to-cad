@@ -184,6 +184,12 @@ curl -X POST "http://localhost:8000/process_instruction" \
 
 ---
 
+### Tests
+
+```bash
+pytest -q
+```
+
 ## API Contract & Preview Plan
 
 The Text-to-CAD backend provides a **stable JSON contract** designed for integration with CAD plugins like SolidWorks Add-Ins and Fusion360 scripts. All endpoints return consistent, versioned schemas with predictable field structures.
