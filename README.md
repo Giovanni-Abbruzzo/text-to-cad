@@ -32,7 +32,7 @@ Create `.env` files for configuration:
 
 **Frontend** (`frontend/.env`):
 ```
-VITE_API_BASE=http://localhost:8000/docs
+VITE_API_BASE=http://localhost:8000
 ```
 
 **Backend** (`backend/.env`) - Optional for AI features:
