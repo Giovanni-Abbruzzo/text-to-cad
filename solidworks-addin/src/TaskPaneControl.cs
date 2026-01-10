@@ -113,7 +113,7 @@ namespace TextToCad.SolidWorksAddin
         }
 
         /// <summary>
-        /// Handle Execute button click - calls /process_instruction endpoint
+        /// Handle Execute button click - uses ExecuteController for full workflow
         /// </summary>
         private async void btnExecute_Click(object sender, EventArgs e)
         {
@@ -134,7 +134,7 @@ namespace TextToCad.SolidWorksAddin
             // Confirm execution
             if (!ErrorHandler.Confirm(
                 $"Execute this instruction?\n\n\"{txtInstruction.Text}\"\n\n" +
-                "This will save the command to the database.",
+                "This will save the command to the database and create CAD geometry.",
                 "Confirm Execution"))
             {
                 AppendLog("❌ Execution cancelled by user", Color.Orange);
@@ -152,15 +152,15 @@ namespace TextToCad.SolidWorksAddin
                 // Create request
                 var request = new InstructionRequest(txtInstruction.Text, chkUseAI.Checked);
 
-                // Call API
+                // Call API to get parsed response
                 var response = await ApiClient.ProcessInstructionAsync(request);
 
-                // Display results
+                // Display response (shows plan and parameters)
                 DisplayResponse(response, isPreview: false);
 
                 AppendLog("✓ Execution complete (saved to database)", Color.Green);
 
-                // === NEW: Actually execute the CAD operation ===
+                // Now execute the CAD operations
                 AppendLog("", Color.Black);
                 AppendLog("🔧 Creating CAD geometry...", Color.Blue);
                 
@@ -627,11 +627,18 @@ namespace TextToCad.SolidWorksAddin
                     return CreateCircularHoles(swApp, model, parsed, logger);
                 }
                 
+                // Fillet Operation (Sprint SW-6)
+                else if (action.Contains("fillet") || shape.Contains("fillet"))
+                {
+                    AppendLog("Detected: Fillet operation", Color.Blue);
+                    return CreateFillet(swApp, model, parsed, logger);
+                }
+                
                 // Unknown operation
                 else
                 {
                     AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
-                    AppendLog("Currently supported: base plates, cylinders, circular hole patterns", Color.Gray);
+                    AppendLog("Currently supported: base plates, cylinders, circular hole patterns, fillets", Color.Gray);
                     System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation: Unrecognized action/shape: {action}/{shape}");
                     return false;
                 }
@@ -790,6 +797,59 @@ namespace TextToCad.SolidWorksAddin
             {
                 AppendLog($"❌ Cylinder creation failed: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"CreateCylinder exception: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create a fillet using FilletBuilder (Sprint SW-6)
+        /// </summary>
+        private bool CreateFillet(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                // Extract parameters from parsed data
+                var data = parsed.ParametersData;
+                if (data == null)
+                {
+                    AppendLog("⚠️ No parameters data for fillet", Color.Orange);
+                    return false;
+                }
+
+                // Extract radius (backend puts it in DiameterMm field)
+                double radiusMm = data.DiameterMm ?? 2.0;  // Default: 2mm radius
+
+                // Check if we should fillet all edges (count = 0) or just recent feature
+                bool allEdges = data.Count.HasValue && data.Count.Value == 0;
+
+                AppendLog($"Creating fillet:", Color.Blue);
+                AppendLog($"  Radius: {radiusMm}mm", Color.DarkGray);
+                AppendLog($"  Target: {(allEdges ? "All edges" : "Recent feature edges")}", Color.DarkGray);
+
+                // Create the builder
+                var builder = new Builders.FilletBuilder(swApp, logger);
+
+                // Execute!
+                bool success;
+                if (allEdges)
+                {
+                    success = builder.ApplyFilletToAllSharpEdges(model, radiusMm);
+                }
+                else
+                {
+                    success = builder.ApplyFilletToRecentEdges(model, radiusMm);
+                }
+
+                return success;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"❌ Fillet creation failed: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"CreateFillet exception: {ex.Message}");
                 return false;
             }
         }

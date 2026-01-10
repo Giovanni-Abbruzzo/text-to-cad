@@ -362,8 +362,8 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
     
     elif action == "fillet":
         desc = "Apply fillet"
-        if diameter_mm:  # Using diameter as radius for fillets
-            desc += f" with {diameter_mm/2} mm radius"
+        if diameter_mm:  # For fillets, diameter_mm holds the radius value
+            desc += f" with {diameter_mm} mm radius"
         plan.append(desc)
     
     elif action == "create_feature":
@@ -553,6 +553,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         shape = "sphere"
     elif any(word in instruction_lower for word in ["hole", "holes"]):
         shape = "hole"
+    elif any(word in instruction_lower for word in ["fillet", "round"]):
+        shape = "fillet"
     
     # Dimension extraction using regex patterns
     # Pattern: number followed by optional unit (mm, millimeter, etc.)
@@ -581,17 +583,17 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
             except (ValueError, IndexError):
                 continue
     
-    # Diameter extraction
+    # Diameter extraction (also used for fillet radius)
     # IMPORTANT: Order matters! More specific patterns first.
     diameter_mm = None
     diameter_patterns = [
-        # Pattern 1: Number directly before "diameter/dia/width/wide" with optional "mm"
-        # Examples: "25mm diameter", "30 diameter", "20mm wide"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:diameter|dia|width|wide)(?:\s|$)',
+        # Pattern 1: Number directly before "diameter/dia/width/wide/fillet/radius" with optional "mm"
+        # Examples: "25mm diameter", "30 diameter", "20mm wide", "3mm fillet", "5mm radius"
+        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:diameter|dia|width|wide|fillet|radius)(?:\s|$)',
         
-        # Pattern 2: "diameter/dia/width/wide" followed by number
-        # Examples: "diameter 25mm", "width of 30mm"
-        r'(?:diameter|dia|width|wide)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
+        # Pattern 2: "diameter/dia/width/wide/fillet/radius" followed by number
+        # Examples: "diameter 25mm", "width of 30mm", "fillet 3mm", "radius 5"
+        r'(?:diameter|dia|width|wide|fillet|radius)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
         
         # Pattern 3: Number before shape name (cylinder, sphere, plate) - implies diameter/size
         # Examples: "15mm cylinder", "20 sphere", "80mm plate"
@@ -749,18 +751,28 @@ Mount /outputs if not already.
         # Examples: 
         #   "create base plate\ncreate cylinder" -> 2 operations
         #   "create base plate create cylinder" -> 2 operations
+        #   "create base plate and add fillet" -> 2 operations
         
         # First split by newlines
         lines = [line.strip() for line in request.instruction.split('\n') if line.strip()]
         
-        # Then split each line by multiple "create" keywords
+        # Then split each line by multiple "create" keywords AND "and" clauses
         instruction_lines = []
         for line in lines:
             # Use regex to split on "create" while keeping it
             # Pattern: split before "create" (case-insensitive) when not at start
             import re
             parts = re.split(r'\s+(?=create\s)', line, flags=re.IGNORECASE)
-            instruction_lines.extend([p.strip() for p in parts if p.strip()])
+            
+            # Further split each part on "and" clauses (and add, and create, then add, etc.)
+            final_parts = []
+            for part in parts:
+                # Split on "and add", "and create", "then add", "then create"
+                # Keep the verb (add/create) with the second part
+                sub_parts = re.split(r'\s+(?:and|then)\s+(?=(?:add|create|apply)\s)', part, flags=re.IGNORECASE)
+                final_parts.extend([p.strip() for p in sub_parts if p.strip()])
+            
+            instruction_lines.extend(final_parts)
         
         if len(instruction_lines) > 1:
             logger.info(f"Multi-line instruction detected: {len(instruction_lines)} operations")
