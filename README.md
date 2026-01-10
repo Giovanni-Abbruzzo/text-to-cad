@@ -60,6 +60,22 @@ Perfect for showcasing the system:
 
 ---
 
+## Local Run Checklist
+
+1. **Backend**: create venv, install deps, and start the API
+   - `cd backend`
+   - `python -m venv .venv`
+   - `.venv\Scripts\Activate.ps1` (Windows) or `source .venv/bin/activate` (macOS/Linux)
+   - `pip install -r requirements.txt`
+   - `uvicorn main:app --reload`
+2. **Frontend**: install deps and run Vite
+   - `cd frontend`
+   - `npm install`
+   - `npm run dev`
+3. **Verify endpoints**
+   - `curl http://localhost:8000/health`
+   - `curl -X POST http://localhost:8000/dry_run -H "Content-Type: application/json" -d "{\"instruction\":\"create a 5mm hole\",\"use_ai\":false}"`
+
 ## 🛠️ Troubleshooting
 
 ### Common Issues
