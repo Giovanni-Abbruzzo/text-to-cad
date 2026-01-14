@@ -11,7 +11,7 @@ namespace TextToCad.SolidWorksAddin.Builders
     /// Ensures a base plate exists before adding other features.
     /// </summary>
     /// <remarks>
-    /// This is the first "real" CAD operation that creates actual geometry.
+    /// This is the first core CAD operation that creates actual geometry.
     /// It demonstrates:
     /// - Checking for existing bodies
     /// - Selecting reference planes
@@ -19,10 +19,6 @@ namespace TextToCad.SolidWorksAddin.Builders
     /// - Creating boss-extrude features
     /// - Using UndoScope for safe rollback
     /// - Proper unit conversion (mm to meters)
-    /// 
-    /// USAGE:
-    /// var builder = new BasePlateBuilder(swApp, logger);
-    /// bool success = builder.EnsureBasePlate(modelDoc, 80.0, 6.0);
     /// </remarks>
     public class BasePlateBuilder
     {
@@ -49,32 +45,37 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// <param name="model">SolidWorks model document (must be a Part)</param>
         /// <param name="sizeMm">Side length of the square base plate in millimeters (default: 80mm)</param>
         /// <param name="thicknessMm">Extrusion thickness in millimeters (default: 6mm)</param>
+        /// <param name="widthMm">Optional custom width in millimeters (overrides sizeMm)</param>
+        /// <param name="lengthMm">Optional custom length in millimeters (overrides sizeMm)</param>
+        /// <param name="draftAngleDeg">Optional draft angle in degrees (applies taper to the extrude)</param>
+        /// <param name="draftOutward">Optional draft direction: true = outward, false = inward</param>
+        /// <param name="flipDirection">Optional: true to flip the extrusion direction</param>
         /// <returns>True if base plate exists or was created successfully; false on error</returns>
         /// <remarks>
         /// WORKFLOW:
-        /// 1. Check if model already has solid bodies → skip if yes
+        /// 1. Check if model already has solid bodies; skip if yes
         /// 2. Select Top Plane
         /// 3. Create sketch with center rectangle
         /// 4. Boss-extrude to create solid
         /// 5. Commit changes if successful, rollback on error
-        /// 
-        /// PARAMETERS:
-        /// - sizeMm: Creates a square base plate (e.g., 80mm = 80×80mm plate)
-        /// - thicknessMm: How tall the base plate is (e.g., 6mm thick)
-        /// 
-        /// DEFAULT VALUES:
-        /// - Size: 80mm × 80mm (suitable for most small parts)
-        /// - Thickness: 6mm (common sheet metal thickness)
         /// </remarks>
         /// <example>
-        /// // Create default 80×80×6mm base plate
+        /// // Create default 80x80x6mm base plate
         /// var builder = new BasePlateBuilder(swApp, logger);
         /// bool success = builder.EnsureBasePlate(modelDoc);
         /// 
-        /// // Create custom 100×100×10mm base plate
-        /// bool success = builder.EnsureBasePlate(modelDoc, 100.0, 10.0);
+        /// // Create custom 100x120x10mm base plate
+        /// bool success = builder.EnsureBasePlate(modelDoc, 80.0, 10.0, 100.0, 120.0);
         /// </example>
-        public bool EnsureBasePlate(IModelDoc2 model, double sizeMm = 80.0, double thicknessMm = 6.0)
+        public bool EnsureBasePlate(
+            IModelDoc2 model,
+            double sizeMm = 80.0,
+            double thicknessMm = 6.0,
+            double? widthMm = null,
+            double? lengthMm = null,
+            double? draftAngleDeg = null,
+            bool? draftOutward = null,
+            bool? flipDirection = null)
         {
             if (model == null)
             {
@@ -82,10 +83,30 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            // Validate parameters
-            if (sizeMm <= 0)
+            if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
             {
-                _log.Error($"Invalid size: {sizeMm} mm (must be > 0)");
+                _log.Error("EnsureBasePlate only works with Part documents");
+                return false;
+            }
+
+            if (HasSolidBodies(model))
+            {
+                _log.Info("Solid body already exists; skipping base plate creation");
+                return true;
+            }
+
+            double actualWidthMm = widthMm ?? sizeMm;
+            double actualLengthMm = lengthMm ?? sizeMm;
+
+            if (actualWidthMm <= 0)
+            {
+                _log.Error($"Invalid width: {actualWidthMm} mm (must be > 0)");
+                return false;
+            }
+
+            if (actualLengthMm <= 0)
+            {
+                _log.Error($"Invalid length: {actualLengthMm} mm (must be > 0)");
                 return false;
             }
 
@@ -95,26 +116,38 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            // Check document type
-            if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
+            double? sanitizedDraftAngleDeg = null;
+            if (draftAngleDeg.HasValue)
             {
-                _log.Error("EnsureBasePlate only works with Part documents");
-                return false;
+                if (draftAngleDeg.Value <= 0)
+                {
+                    _log.Warn($"Draft angle must be > 0 deg; ignoring value {draftAngleDeg.Value}");
+                }
+                else if (draftAngleDeg.Value >= 89)
+                {
+                    _log.Warn($"Draft angle too large; capping to 89 deg (requested {draftAngleDeg.Value})");
+                    sanitizedDraftAngleDeg = 89.0;
+                }
+                else
+                {
+                    sanitizedDraftAngleDeg = draftAngleDeg.Value;
+                }
             }
 
-            _log.Info($"Creating base plate (size={sizeMm}mm, thickness={thicknessMm}mm)");
+            bool useDraft = sanitizedDraftAngleDeg.HasValue;
+            bool draftOut = draftOutward ?? false;
+            bool flip = flipDirection ?? false;
 
-            // NOTE: Removed the HasSolidBodies check to support multi-operation instructions
-            // Previously, this method would skip creation if ANY body existed,
-            // which prevented creating a base plate after creating other features (e.g. cylinder).
-            // Now it always creates a new base plate as requested.
+            _log.Info($"Creating base plate (width={actualWidthMm}mm, length={actualLengthMm}mm, thickness={thicknessMm}mm)");
+            if (useDraft)
+                _log.Info($"  Draft: {sanitizedDraftAngleDeg} deg, outward={draftOut}");
+            if (flip)
+                _log.Info("  Flip direction: true");
 
-            // Use UndoScope for safe rollback on failure
             using (var scope = new UndoScope(model, "Create Base Plate", _log))
             {
                 try
                 {
-                    // Step 1: Select Top Plane
                     _log.Info("Selecting Top Plane...");
                     if (!Selection.SelectPlaneByName(_sw, model, "Top Plane", logger: _log))
                     {
@@ -122,51 +155,43 @@ namespace TextToCad.SolidWorksAddin.Builders
                         return false;
                     }
 
-                    // Step 2: Start sketch on selected plane
                     _log.Info("Starting sketch...");
                     model.SketchManager.InsertSketch(true);
 
-                    // Verify sketch is active and clear selections
                     if (model.SketchManager.ActiveSketch == null)
                     {
                         _log.Error("Failed to activate sketch");
                         return false;
                     }
-                    
-                    // Clear any selections to avoid conflicts
+
                     model.ClearSelection2(true);
-                    
-                    _log.Info("✓ Sketch active and ready");
+                    _log.Info("Sketch active and ready");
 
-                    // Step 3: Create center rectangle
-                    // Convert size from mm to meters for API
-                    double sizeM = Units.MmToM(sizeMm);
-                    double halfSizeM = sizeM / 2.0;
+                    double widthM = Units.MmToM(actualWidthMm);
+                    double lengthM = Units.MmToM(actualLengthMm);
+                    double halfWidthM = widthM / 2.0;
+                    double halfLengthM = lengthM / 2.0;
 
-                    _log.Info($"Creating center rectangle ({sizeMm}×{sizeMm} mm)...");
-                    _log.Info($"  Center: (0, 0, 0), Half-size: {halfSizeM:F6} meters");
-                    
-                    // CreateCenterRectangle parameters:
-                    // X, Y, Z of center point (origin)
-                    // X, Y, Z of corner point (half-width from center)
+                    _log.Info($"Creating center rectangle ({actualLengthMm}x{actualWidthMm} mm)...");
+                    _log.Info($"  Center: (0, 0, 0), Half-size: {halfLengthM:F6} x {halfWidthM:F6} meters");
+
                     object rectObj = model.SketchManager.CreateCenterRectangle(
-                        0, 0, 0,           // Center at origin
-                        halfSizeM,         // Half-width in X
-                        halfSizeM,         // Half-width in Y (or could be different for non-square)
-                        0                  // Z = 0 (on plane)
+                        0, 0, 0,
+                        halfLengthM,
+                        halfWidthM,
+                        0
                     );
 
                     if (rectObj == null)
                     {
                         _log.Error("CreateCenterRectangle returned null");
                         _log.Error("Attempting alternative: CreateCornerRectangle...");
-                        
-                        // Try corner rectangle as fallback
+
                         rectObj = model.SketchManager.CreateCornerRectangle(
-                            -halfSizeM, -halfSizeM, 0,  // Bottom-left corner
-                            halfSizeM, halfSizeM, 0     // Top-right corner
+                            -halfLengthM, -halfWidthM, 0,
+                            halfLengthM, halfWidthM, 0
                         );
-                        
+
                         if (rectObj == null)
                         {
                             _log.Error("CreateCornerRectangle also returned null - sketch geometry creation failed");
@@ -176,43 +201,42 @@ namespace TextToCad.SolidWorksAddin.Builders
                             _log.Error("  - SolidWorks in unexpected state");
                             return false;
                         }
-                        
-                        _log.Info("✓ Rectangle created using corner method (fallback)");
+
+                        _log.Info("Rectangle created using corner method (fallback)");
                     }
                     else
                     {
-                        _log.Info("✓ Center rectangle created successfully");
+                        _log.Info("Center rectangle created successfully");
                     }
 
-                    // Step 4: Exit sketch
                     _log.Info("Exiting sketch...");
                     model.SketchManager.InsertSketch(true);
 
-                    // Step 5: Create boss-extrude feature
                     double thicknessM = Units.MmToM(thicknessMm);
-                    
+
                     _log.Info($"Creating boss-extrude (thickness={thicknessMm} mm)...");
-                    
-                    // Use FeatureExtrusion method (20 parameters required)
+
+                    double draftAngleRad = useDraft ? (sanitizedDraftAngleDeg.Value * Math.PI / 180.0) : 0.0;
+
                     IFeature feature = model.FeatureManager.FeatureExtrusion(
                         true,              // SD: Single direction
-                        false,             // Flip: Don't flip direction (extrude up)
+                        flip,              // Flip: Flip direction
                         false,             // Dir: Direction (not used for blind)
                         (int)swEndConditions_e.swEndCondBlind,  // T1: Blind extrusion
                         0,                 // T2: Not used (single direction)
                         thicknessM,        // D1: Depth in meters
                         0.0,               // D2: Not used
-                        false,             // DDir: No draft
+                        draftOut,          // DDir: Draft direction
                         false,             // DDir2: No draft
                         false,             // DDirBoth: No draft
-                        false,             // DFlag: Draft flag
-                        0.0,               // DDirAngle: No draft angle
+                        useDraft,          // DFlag: Draft flag
+                        draftAngleRad,     // DDirAngle: Draft angle (radians)
                         0.0,               // DDirAngle2: No draft angle
                         false,             // OffsetReverse1: No offset reverse
                         false,             // OffsetReverse2: No offset reverse
                         false,             // TranslateSurface1: No translate
                         false,             // TranslateSurface2: No translate
-                        false,             // Merge: Don't merge (first feature)
+                        false,             // Merge: Merge with existing bodies if any
                         false,             // UseFeatScope: Not used
                         false              // UseAutoSelect: Not used
                     ) as IFeature;
@@ -227,18 +251,15 @@ namespace TextToCad.SolidWorksAddin.Builders
                         return false;
                     }
 
-                    // Success!
                     string featureName = feature.Name;
-                    _log.Info($"✓ Base plate created successfully: '{featureName}'");
-                    _log.Info($"  Dimensions: {sizeMm}×{sizeMm}×{thicknessMm} mm");
-                    
-                    // Rebuild to ensure feature is fully created
-                    _log.Info("Rebuilding model...");
-                    model.ForceRebuild3(false);  // false = don't show errors in UI
+                    _log.Info($"Base plate created successfully: '{featureName}'");
+                    _log.Info($"  Dimensions: {actualLengthMm}x{actualWidthMm}x{thicknessMm} mm");
 
-                    // Commit the UndoScope - operation succeeded
+                    _log.Info("Rebuilding model...");
+                    model.ForceRebuild3(false);
+
                     scope.Commit();
-                    
+
                     return true;
                 }
                 catch (Exception ex)
@@ -246,7 +267,6 @@ namespace TextToCad.SolidWorksAddin.Builders
                     _log.Error($"Exception creating base plate: {ex.Message}");
                     _log.Error($"Stack trace: {ex.StackTrace}");
                     return false;
-                    // UndoScope will automatically rollback changes
                 }
             }
         }
@@ -260,19 +280,7 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// This is used to determine if a base plate needs to be created.
         /// If bodies already exist, we skip base plate creation to avoid
         /// overwriting existing geometry.
-        /// 
-        /// BODY TYPES:
-        /// - Solid bodies: 3D solid geometry (what we check for)
-        /// - Surface bodies: Sheet/surface geometry (not checked)
-        /// - Wireframe: Curves/edges only (not checked)
         /// </remarks>
-        /// <example>
-        /// if (!builder.HasSolidBodies(model))
-        /// {
-        ///     // Safe to create base plate
-        ///     builder.EnsureBasePlate(model);
-        /// }
-        /// </example>
         public bool HasSolidBodies(IModelDoc2 model)
         {
             if (model == null)

@@ -45,13 +45,22 @@ def parse_instruction_with_ai(text: str) -> Dict[str, Any]:
     api_key = os.getenv("OPENAI_API_KEY")
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     timeout = int(os.getenv("OPENAI_TIMEOUT_S", "20"))
+    base_url = os.getenv("OPENAI_BASE_URL")
+    organization = os.getenv("OPENAI_ORG")
+    project = os.getenv("OPENAI_PROJECT")
     
     # Check if API key is available
     if not api_key:
         raise LLMParseError("OpenAI API key not configured")
     
-    # Initialize OpenAI client
-    client = OpenAI(api_key=api_key, timeout=timeout)
+    # Initialize OpenAI client (supports alternate base_url for local gateways)
+    client = OpenAI(
+        api_key=api_key,
+        timeout=timeout,
+        base_url=base_url,
+        organization=organization,
+        project=project,
+    )
     
     # Build the prompt for structured JSON output
     system_prompt = """You are a CAD command parser. Convert natural language instructions into JSON commands.
@@ -59,15 +68,24 @@ def parse_instruction_with_ai(text: str) -> Dict[str, Any]:
 Return ONLY valid JSON matching this exact schema:
 {
   "action": "create_hole" | "extrude" | "fillet" | "pattern" | "create_feature",
-  "parameters": {
-    "count": number | null,
-    "diameter_mm": number | null,
-    "height_mm": number | null,
-    "shape": string | null,
-    "pattern": {
-      "type": "circular" | "linear" | null,
+    "parameters": {
       "count": number | null,
-      "angle_deg": number | null
+      "diameter_mm": number | null,
+      "height_mm": number | null,
+      "width_mm": number | null,
+      "length_mm": number | null,
+      "depth_mm": number | null,
+      "radius_mm": number | null,
+      "angle_deg": number | null,
+      "draft_angle_deg": number | null,
+      "draft_outward": boolean | null,
+      "flip_direction": boolean | null,
+      "shape": string | null,
+      "pattern": {
+        "type": "circular" | "linear" | null,
+        "count": number | null,
+        "angle_deg": number | null,
+      "radius_mm": number | null
     } | null
   }
 }
@@ -79,6 +97,10 @@ Rules:
 - Shape detection: Look for shape keywords like "cylinder", "box", "cube", "sphere", "cone", "block", "circle", "square", "rectangle"
 - Dimension mapping: Map "width", "wide", "diameter", "dia", "across" to diameter_mm field
 - Height mapping: Map "height", "tall", "high", "thick", "thickness" to height_mm field
+- Width/length/depth mapping: Use width_mm, length_mm, depth_mm when explicit
+- Radius mapping: Map "radius" to radius_mm (leave diameter_mm null unless explicitly stated)
+- Draft mapping: If instruction mentions draft or taper, set draft_angle_deg and draft_outward when specified
+- Flip mapping: If instruction mentions flip/reverse direction, set flip_direction = true
 - For patterns, include type, count, and angle if specified
 - Pattern detection: Look for keywords like "array", "pattern", "circular", "linear", "repeat", "copy", "around", "in a circle", "in a line"
 - If no pattern is mentioned, set pattern to null
@@ -86,12 +108,23 @@ Rules:
 - Return ONLY the JSON, no explanations or markdown
 
 Examples:
-- "create a 5mm hole" → shape: null, pattern: null
-- "extrude a 5mm tall cylinder with 10mm diameter" → shape: "cylinder", pattern: null
-- "create a box that is 10mm wide" → shape: "box", pattern: null
-- "make a sphere with 5mm radius" → shape: "sphere", pattern: null
-- "create 4 holes in a circular pattern" → shape: null, pattern: {"type": "circular", "count": 4, "angle_deg": null}
-- "make 3 cylinders in a line" → shape: "cylinder", pattern: {"type": "linear", "count": 3, "angle_deg": null}"""
+- "create a 5mm hole" -> shape: null, pattern: null
+- "extrude a 5mm tall cylinder with 10mm diameter" -> shape: "cylinder", pattern: null
+- "create a box that is 10mm wide" -> shape: "box", pattern: null
+- "make a sphere with 5mm radius" -> shape: "sphere", pattern: null
+- "create 4 holes in a circular pattern" -> shape: null, pattern: {"type": "circular", "count": 4, "angle_deg": null}
+- "make 3 cylinders in a line" -> shape: "cylinder", pattern: {"type": "linear", "count": 3, "angle_deg": null}"""
+
+    prompt_override = os.getenv("OPENAI_SYSTEM_PROMPT")
+    prompt_path = os.getenv("OPENAI_SYSTEM_PROMPT_PATH")
+    if prompt_path:
+        try:
+            with open(prompt_path, "r", encoding="utf-8") as handle:
+                prompt_override = handle.read()
+        except OSError:
+            pass
+    if prompt_override:
+        system_prompt = prompt_override
 
     try:
         # Make API call to OpenAI

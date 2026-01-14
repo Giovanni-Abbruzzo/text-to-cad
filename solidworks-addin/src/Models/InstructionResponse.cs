@@ -65,7 +65,8 @@ namespace TextToCad.SolidWorksAddin.Models
             if (Plan == null || Plan.Count == 0)
                 return "No plan available";
 
-            return string.Join("\n", Plan.ConvertAll(p => $"• {p}"));
+            return string.Join("
+", Plan.ConvertAll(p => $"- {p}"));
         }
 
         /// <summary>
@@ -76,7 +77,7 @@ namespace TextToCad.SolidWorksAddin.Models
             string source = IsAIParsed ? "AI" : "Rule-based";
             string action = ParsedParameters?.Action ?? "unknown";
             int planSteps = Plan?.Count ?? 0;
-            
+
             return $"[{source}] Action: {action}, Plan steps: {planSteps}";
         }
     }

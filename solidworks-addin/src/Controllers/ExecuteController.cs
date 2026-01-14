@@ -9,26 +9,9 @@ using TextToCad.SolidWorksAddin.Utils;
 namespace TextToCad.SolidWorksAddin.Controllers
 {
     /// <summary>
-    /// Service controller for orchestrating the Preview → Execute workflow.
+    /// Service controller for orchestrating the Preview and Execute workflow.
     /// Handles API communication, response parsing, validation, and builder orchestration.
     /// </summary>
-    /// <remarks>
-    /// This controller provides a clean separation between:
-    /// - UI layer (TaskPaneControl)
-    /// - API communication (ApiClient)
-    /// - Business logic (Validation and orchestration)
-    /// - CAD operations (Builders)
-    /// 
-    /// The Preview → Execute pattern:
-    /// 1. Preview: Call /dry_run to show user what will happen (no side effects)
-    /// 2. User reviews and confirms
-    /// 3. Execute: Call /process_instruction and execute CAD operations
-    /// 
-    /// USAGE:
-    /// var controller = new ExecuteController(swApp, logger);
-    /// string preview = await controller.PreviewAsync("create 100mm plate 5mm thick");
-    /// bool success = await controller.ExecuteAsync("create 100mm plate 5mm thick");
-    /// </remarks>
     public class ExecuteController
     {
         private readonly ISldWorks _sw;
@@ -52,21 +35,6 @@ namespace TextToCad.SolidWorksAddin.Controllers
         /// <param name="instruction">Natural language CAD instruction</param>
         /// <param name="useAI">Whether to use AI parsing (requires API key)</param>
         /// <returns>Raw JSON response from backend for display/review</returns>
-        /// <remarks>
-        /// This method has no side effects:
-        /// - Does not save to database
-        /// - Does not create CAD geometry
-        /// - Does not modify the model
-        /// 
-        /// Use this to show users what will happen before they commit to execution.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// string preview = await controller.PreviewAsync("create a 20mm cylinder 40mm tall");
-        /// // Display preview to user
-        /// // User reviews and decides whether to execute
-        /// </code>
-        /// </example>
         public async Task<string> PreviewAsync(string instruction, bool useAI = false)
         {
             try
@@ -104,24 +72,6 @@ namespace TextToCad.SolidWorksAddin.Controllers
         /// <param name="useAI">Whether to use AI parsing (requires API key)</param>
         /// <param name="model">Optional: Specific model to execute on (uses active model if null)</param>
         /// <returns>True if execution succeeded; false otherwise</returns>
-        /// <remarks>
-        /// This method has side effects:
-        /// - Saves instruction to database
-        /// - Creates CAD geometry in the model
-        /// - Modifies the active document
-        /// 
-        /// All operations are wrapped in UndoScope for safe rollback on failure.
-        /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Preview first (recommended)
-        /// string preview = await controller.PreviewAsync("create 100mm plate 5mm thick");
-        /// // Show preview to user...
-        /// 
-        /// // Execute if user confirms
-        /// bool success = await controller.ExecuteAsync("create 100mm plate 5mm thick");
-        /// </code>
-        /// </example>
         public async Task<bool> ExecuteAsync(string instruction, bool useAI = false, IModelDoc2 model = null)
         {
             try
@@ -192,18 +142,18 @@ namespace TextToCad.SolidWorksAddin.Controllers
                     for (int i = 0; i < response.Operations.Count; i++)
                     {
                         var operation = response.Operations[i];
-                        _log.Info($"▶ Operation {i + 1}/{response.Operations.Count}: {operation.Action}");
+                        _log.Info($"Operation {i + 1}/{response.Operations.Count}: {operation.Action}");
 
                         bool success = ExecuteSingleOperation(model, operation);
                         if (!success)
                         {
-                            _log.Error($"✗ Operation {i + 1} failed");
+                            _log.Error($"Operation {i + 1} failed");
                             allSucceeded = false;
                             // Continue with remaining operations
                         }
                         else
                         {
-                            _log.Info($"✓ Operation {i + 1} completed");
+                            _log.Info($"Operation {i + 1} completed");
                         }
                     }
 
@@ -260,8 +210,9 @@ namespace TextToCad.SolidWorksAddin.Controllers
                     return ExecuteFillet(model, data);
                 }
 
-                // Handle base plate
-                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular") || shape == "base_plate")
+                // Handle base plate / block
+                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular") ||
+                    shape.Contains("block") || shape.Contains("box") || shape.Contains("cube") || shape == "base_plate")
                 {
                     return ExecuteBasePlate(model, data);
                 }
@@ -276,6 +227,14 @@ namespace TextToCad.SolidWorksAddin.Controllers
                 if (action.Contains("hole") || data.Pattern != null)
                 {
                     return ExecuteHoles(model, data);
+                }
+
+                // Handle chamfer (future)
+                if (action.Contains("chamfer") || shape.Contains("chamfer"))
+                {
+                    _log.Warn("Chamfer operation requested but not implemented yet");
+                    // Future implementation -- chamfer addition here.
+                    return false;
                 }
 
                 _log.Warn($"Unhandled operation: action='{action}', shape='{shape}'");
@@ -295,13 +254,23 @@ namespace TextToCad.SolidWorksAddin.Controllers
         {
             try
             {
-                double sizeMm = data.DiameterMm ?? 80.0;
-                double thicknessMm = data.HeightMm ?? 6.0;
+                double widthMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
+                double lengthMm = data.LengthMm ?? data.WidthMm ?? data.DiameterMm ?? widthMm;
+                double thicknessMm = data.HeightMm ?? data.DepthMm ?? 6.0;
 
-                _log.Info($"Creating base plate: {sizeMm}×{sizeMm}×{thicknessMm} mm");
+                _log.Info($"Creating base plate: {lengthMm}x{widthMm}x{thicknessMm} mm");
 
                 var builder = new BasePlateBuilder(_sw, _log);
-                return builder.EnsureBasePlate(model, sizeMm, thicknessMm);
+                return builder.EnsureBasePlate(
+                    model,
+                    widthMm,
+                    thicknessMm,
+                    widthMm,
+                    lengthMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
+                );
             }
             catch (Exception ex)
             {
@@ -317,13 +286,20 @@ namespace TextToCad.SolidWorksAddin.Controllers
         {
             try
             {
-                double diameterMm = data.DiameterMm ?? 20.0;
-                double heightMm = data.HeightMm ?? 30.0;
+                double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 20.0);
+                double heightMm = data.HeightMm ?? data.DepthMm ?? 30.0;
 
-                _log.Info($"Creating cylinder: Ø{diameterMm} mm × {heightMm} mm");
+                _log.Info($"Creating cylinder: diameter={diameterMm} mm, height={heightMm} mm");
 
                 var builder = new ExtrudedCylinderBuilder(_sw, _log);
-                return builder.CreateCylinderOnTopPlane(model, diameterMm, heightMm);
+                return builder.CreateCylinderOnTopPlane(
+                    model,
+                    diameterMm,
+                    heightMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
+                );
             }
             catch (Exception ex)
             {
@@ -339,13 +315,31 @@ namespace TextToCad.SolidWorksAddin.Controllers
         {
             try
             {
-                int count = data.Count ?? 4;
-                double diameterMm = data.DiameterMm ?? 5.0;
+                int count = data.Count ?? data.Pattern?.Count ?? 4;
+                double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 5.0);
+                double? angleDeg = data.Pattern?.AngleDeg ?? data.AngleDeg;
+                double? patternRadiusMm = data.Pattern?.RadiusMm;
+                double? depthMm = data.DepthMm ?? data.HeightMm;
 
-                _log.Info($"Creating {count} holes with Ø{diameterMm} mm");
+                double? plateSizeMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
+                if (data.WidthMm.HasValue && data.LengthMm.HasValue)
+                    plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+
+                _log.Info($"Creating {count} holes with diameter={diameterMm} mm");
 
                 var builder = new CircularHolesBuilder(_sw, _log);
-                return builder.CreatePatternOnTopFace(model, count, diameterMm);
+                return builder.CreatePatternOnTopFace(
+                    model,
+                    count,
+                    diameterMm,
+                    angleDeg,
+                    patternRadiusMm,
+                    plateSizeMm,
+                    depthMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
+                );
             }
             catch (Exception ex)
             {
@@ -361,7 +355,7 @@ namespace TextToCad.SolidWorksAddin.Controllers
         {
             try
             {
-                double radiusMm = data.DiameterMm ?? 2.0; // Use diameter field for radius
+                double radiusMm = data.RadiusMm ?? data.DiameterMm ?? 2.0; // Use radius when available
                 bool allEdges = data.Count.HasValue && data.Count.Value == 0; // Count=0 means all edges
 
                 _log.Info($"Creating fillet: radius={radiusMm} mm, target={(allEdges ? "all edges" : "recent feature")}");
@@ -429,10 +423,40 @@ namespace TextToCad.SolidWorksAddin.Controllers
                 return false;
             }
 
+            if (data.WidthMm.HasValue && data.WidthMm.Value <= 0)
+            {
+                _log.Error($"Invalid width: {data.WidthMm.Value} mm (must be > 0)");
+                return false;
+            }
+
+            if (data.LengthMm.HasValue && data.LengthMm.Value <= 0)
+            {
+                _log.Error($"Invalid length: {data.LengthMm.Value} mm (must be > 0)");
+                return false;
+            }
+
+            if (data.DepthMm.HasValue && data.DepthMm.Value <= 0)
+            {
+                _log.Error($"Invalid depth: {data.DepthMm.Value} mm (must be > 0)");
+                return false;
+            }
+
+            if (data.RadiusMm.HasValue && data.RadiusMm.Value <= 0)
+            {
+                _log.Error($"Invalid radius: {data.RadiusMm.Value} mm (must be > 0)");
+                return false;
+            }
+
+            if (data.DraftAngleDeg.HasValue && data.DraftAngleDeg.Value <= 0)
+            {
+                _log.Error($"Invalid draft angle: {data.DraftAngleDeg.Value} deg (must be > 0)");
+                return false;
+            }
+
             // Validate count (if present)
             if (data.Count.HasValue && data.Count.Value < 0)
             {
-                _log.Error($"Invalid count: {data.Count.Value} (must be ≥ 0)");
+                _log.Error($"Invalid count: {data.Count.Value} (must be >= 0)");
                 return false;
             }
 
@@ -444,7 +468,7 @@ namespace TextToCad.SolidWorksAddin.Controllers
         /// </summary>
         private string CreateErrorResponse(string message)
         {
-            return $"{{\"error\": \"{message}\"}}";
+            return $"{{"error": "{message}"}}";
         }
     }
 }

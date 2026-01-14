@@ -27,47 +27,78 @@ namespace TextToCad.SolidWorksAddin
             // Determine user-friendly message based on exception type
             if (ex is HttpRequestException)
             {
-                userMessage = "❌ Cannot connect to backend API.\n\n" +
-                             "Please ensure:\n" +
-                             "• Backend server is running (uvicorn main:app --reload)\n" +
-                             "• API URL is correct in settings\n" +
-                             "• No firewall is blocking the connection\n\n" +
+                userMessage = "Cannot connect to backend API.
+
+" +
+                             "Please ensure:
+" +
+                             "- Backend server is running (uvicorn main:app --reload)
+" +
+                             "- API URL is correct in settings
+" +
+                             "- No firewall is blocking the connection
+
+" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is TaskCanceledException || ex is TimeoutException)
             {
-                userMessage = "⏱️ Request timed out.\n\n" +
-                             "The backend took too long to respond.\n" +
-                             "Please check if the server is overloaded or the instruction is too complex.\n\n" +
+                userMessage = "Request timed out.
+
+" +
+                             "The backend took too long to respond.
+" +
+                             "Please check if the server is overloaded or the instruction is too complex.
+
+" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is Newtonsoft.Json.JsonException)
             {
-                userMessage = "📄 Invalid response from backend.\n\n" +
-                             "The server returned data in an unexpected format.\n" +
-                             "This might indicate a backend error or version mismatch.\n\n" +
+                userMessage = "Invalid response from backend.
+
+" +
+                             "The server returned data in an unexpected format.
+" +
+                             "This might indicate a backend error or version mismatch.
+
+" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is ArgumentException || ex is ArgumentNullException)
             {
-                userMessage = "⚠️ Invalid input.\n\n" +
-                             $"{ex.Message}\n\n" +
+                userMessage = "Invalid input.
+
+" +
+                             $"{ex.Message}
+
+" +
                              "Please check your instruction and try again.";
             }
             else if (ex is UnauthorizedAccessException)
             {
-                userMessage = "🔒 Access denied.\n\n" +
-                             "The add-in doesn't have permission to perform this operation.\n" +
-                             "Try running SolidWorks as administrator.\n\n" +
+                userMessage = "Access denied.
+
+" +
+                             "The add-in does not have permission to perform this operation.
+" +
+                             "Try running SolidWorks as administrator.
+
+" +
                              $"Technical details: {ex.Message}";
             }
             else
             {
                 // Generic error
-                userMessage = $"❌ An unexpected error occurred.\n\n" +
-                             $"Error type: {ex.GetType().Name}\n" +
-                             $"Message: {ex.Message}\n\n" +
-                             $"Please check the log file for more details.";
+                userMessage = "An unexpected error occurred.
+
+" +
+                             $"Error type: {ex.GetType().Name}
+" +
+                             $"Message: {ex.Message}
+
+" +
+                             "Please check the log file for more details.";
             }
 
             return userMessage;
@@ -115,19 +146,22 @@ namespace TextToCad.SolidWorksAddin
 
             if (string.IsNullOrWhiteSpace(instruction))
             {
-                errorMessage = "Instruction cannot be empty.\nPlease enter a CAD command.";
+                errorMessage = "Instruction cannot be empty.
+Please enter a CAD command.";
                 return false;
             }
 
             if (instruction.Length < 3)
             {
-                errorMessage = "Instruction is too short.\nPlease enter at least 3 characters.";
+                errorMessage = "Instruction is too short.
+Please enter at least 3 characters.";
                 return false;
             }
 
             if (instruction.Length > 1000)
             {
-                errorMessage = "Instruction is too long.\nPlease keep it under 1000 characters.";
+                errorMessage = "Instruction is too long.
+Please keep it under 1000 characters.";
                 return false;
             }
 

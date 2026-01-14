@@ -13,9 +13,9 @@ namespace TextToCad.SolidWorksAddin.Utils
     /// </summary>
     /// <remarks>
     /// This class enables selecting faces based on their orientation in model coordinate system:
-    /// - top/bottom: ±Z axis alignment
-    /// - left/right: ±X axis alignment
-    /// - front/back: ±Y axis alignment
+    /// - top/bottom: +/-Y axis alignment
+    /// - left/right: +/-X axis alignment
+    /// - front/back: +/-Z axis alignment
     /// 
     /// Strategy:
     /// 1. Iterate all planar faces on all bodies
@@ -27,21 +27,22 @@ namespace TextToCad.SolidWorksAddin.Utils
     {
         /// <summary>
         /// Minimum dot product threshold for considering a face aligned with a direction.
-        /// Value of 0.7 ≈ 45° tolerance from perfect alignment.
+        /// Value of 0.7 is approximately a 45 deg tolerance from perfect alignment.
         /// </summary>
         private const double ALIGNMENT_THRESHOLD = 0.7;
 
         /// <summary>
         /// Cardinal direction vectors in model coordinate system.
+        /// Assumes SolidWorks default orientation: X = right, Y = up, Z = front.
         /// </summary>
         private static readonly Dictionary<string, double[]> DirectionVectors = new Dictionary<string, double[]>
         {
-            { "top",    new[] {  0.0,  0.0,  1.0 } },  // +Z
-            { "bottom", new[] {  0.0,  0.0, -1.0 } },  // -Z
+            { "top",    new[] {  0.0,  1.0,  0.0 } },  // +Y
+            { "bottom", new[] {  0.0, -1.0,  0.0 } },  // -Y
             { "right",  new[] {  1.0,  0.0,  0.0 } },  // +X
             { "left",   new[] { -1.0,  0.0,  0.0 } },  // -X
-            { "front",  new[] {  0.0,  1.0,  0.0 } },  // +Y
-            { "back",   new[] {  0.0, -1.0,  0.0 } }   // -Y
+            { "front",  new[] {  0.0,  0.0,  1.0 } },  // +Z
+            { "back",   new[] {  0.0,  0.0, -1.0 } }   // -Z
         };
 
         /// <summary>
@@ -156,7 +157,7 @@ namespace TextToCad.SolidWorksAddin.Utils
 
             if (bestFace != null)
             {
-                logger?.Info($"✓ Found '{target}' face (alignment: {bestAlignment:F3})");
+                logger?.Info($"Found '{target}' face (alignment: {bestAlignment:F3})");
                 logger?.Info($"  Checked {totalFaces} total faces ({planarFaces} planar)");
                 return bestFace;
             }

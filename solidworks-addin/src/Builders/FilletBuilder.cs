@@ -12,17 +12,6 @@ namespace TextToCad.SolidWorksAddin.Builders
     /// Builder for creating fillet features on model edges.
     /// Supports filleting recent feature edges or all sharp edges in the model.
     /// </summary>
-    /// <remarks>
-    /// Filleting rounds sharp edges with a specified radius, improving part aesthetics
-    /// and manufacturability. This builder provides two modes:
-    /// 
-    /// 1. Recent Edges: Apply fillet to the most recently created feature's edges
-    /// 2. All Sharp Edges: Apply fillet to all edges in the model (with optional filtering)
-    /// 
-    /// USAGE:
-    /// var builder = new FilletBuilder(swApp, logger);
-    /// bool success = builder.ApplyFilletToRecentEdges(modelDoc, 2.0); // 2mm radius
-    /// </remarks>
     public class FilletBuilder
     {
         private readonly ISldWorks _sw;
@@ -46,13 +35,6 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// <param name="model">SolidWorks model document (must be a Part)</param>
         /// <param name="radiusMm">Fillet radius in millimeters (must be > 0)</param>
         /// <returns>True if fillet was successfully applied; false otherwise</returns>
-        /// <example>
-        /// <code>
-        /// // Apply 3mm fillet to the last created feature's edges
-        /// var builder = new FilletBuilder(swApp, logger);
-        /// bool success = builder.ApplyFilletToRecentEdges(model, 3.0);
-        /// </code>
-        /// </example>
         public bool ApplyFilletToRecentEdges(IModelDoc2 model, double radiusMm)
         {
             if (model == null)
@@ -112,13 +94,6 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// This method can be slow on complex models with many edges.
         /// Consider using ApplyFilletToRecentEdges for targeted filleting.
         /// </remarks>
-        /// <example>
-        /// <code>
-        /// // Apply 2mm fillet to all edges with angle > 30 degrees
-        /// var builder = new FilletBuilder(swApp, logger);
-        /// bool success = builder.ApplyFilletToAllSharpEdges(model, 2.0, 30.0);
-        /// </code>
-        /// </example>
         public bool ApplyFilletToAllSharpEdges(IModelDoc2 model, double radiusMm, double angleThresholdDeg = 0.0)
         {
             if (model == null)
@@ -141,7 +116,7 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            _log.Info($"Applying {radiusMm} mm fillet to all sharp edges (angle threshold: {angleThresholdDeg}°)...");
+            _log.Info($"Applying {radiusMm} mm fillet to all sharp edges (angle threshold: {angleThresholdDeg} deg)...");
 
             // Get all edges from all bodies
             IPartDoc part = (IPartDoc)model;
@@ -179,7 +154,7 @@ namespace TextToCad.SolidWorksAddin.Builders
             if (angleThresholdDeg > 0)
             {
                 targetEdges = allEdges.Where(e => IsSharpEdge(e, angleThresholdDeg)).ToArray();
-                _log.Info($"Filtered to {targetEdges.Length} sharp edges (> {angleThresholdDeg}°)");
+                _log.Info($"Filtered to {targetEdges.Length} sharp edges (> {angleThresholdDeg} deg)");
             }
             else
             {
@@ -248,10 +223,9 @@ namespace TextToCad.SolidWorksAddin.Builders
                         return false;
                     }
 
-                    _log.Info($"✓ Selected {selectedCount}/{edges.Length} edges");
+                    _log.Info($"Selected {selectedCount}/{edges.Length} edges");
 
                     // Create fillet feature using InsertFeatureFillet
-                    // This is the simpler API for constant-radius fillets
                     IFeatureManager featMgr = model.FeatureManager;
 
                     _log.Info($"Creating constant-radius fillet (radius: {radiusMm} mm)...");
@@ -280,7 +254,7 @@ namespace TextToCad.SolidWorksAddin.Builders
                         return false;
                     }
 
-                    _log.Info($"✓ Fillet feature '{filletFeature.Name}' created successfully");
+                    _log.Info($"Fillet feature '{filletFeature.Name}' created successfully");
 
                     // Rebuild to apply the fillet
                     model.ForceRebuild3(false);
@@ -317,8 +291,8 @@ namespace TextToCad.SolidWorksAddin.Builders
                 {
                     // Skip origin features and reference geometry
                     string typeName = feature.GetTypeName2();
-                    if (typeName != "ProfileFeature" && 
-                        typeName != "RefPlane" && 
+                    if (typeName != "ProfileFeature" &&
+                        typeName != "RefPlane" &&
                         typeName != "CoordSys" &&
                         !typeName.Contains("OriginFeature"))
                     {
@@ -352,14 +326,10 @@ namespace TextToCad.SolidWorksAddin.Builders
                 if (facesObj == null || facesObj.Length < 2)
                     return false; // Boundary edge, no angle to measure
 
-                IFace2 face1 = (IFace2)facesObj[0];
-                IFace2 face2 = (IFace2)facesObj[1];
+                // Future implementation -- fillet addition here (compute dihedral angle accurately).
 
-                // Get surface normals (simplified - would need more sophisticated angle calculation)
-                // For now, consider all edges with two faces as potentially sharp
-                // A full implementation would compute the actual dihedral angle
-
-                return true; // TODO: Implement proper angle calculation if needed
+                // For now, consider all edges with two faces as potentially sharp.
+                return true;
             }
             catch
             {

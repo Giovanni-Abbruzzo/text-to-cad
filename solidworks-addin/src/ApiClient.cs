@@ -27,22 +27,22 @@ namespace TextToCad.SolidWorksAddin
                 Timeout = TimeSpan.FromSeconds(timeoutSeconds)
             };
 
-            // Set base URL from config
-            baseUrl = ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:8000";
-            
+            // Set base URL from config (can be overridden via UI)
+            baseUrl = NormalizeBaseUrl(ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:8000");
+
             Logger.Info($"ApiClient initialized with base URL: {baseUrl}, timeout: {timeoutSeconds}s");
         }
 
         /// <summary>
-        /// Set or update the base URL for API calls
+        /// Set or update the base URL for API calls.
+        /// This overrides the App.config value for the current session.
         /// </summary>
         public static void SetBaseUrl(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
                 throw new ArgumentException("Base URL cannot be empty", nameof(url));
 
-            // Ensure URL doesn't end with slash
-            baseUrl = url.TrimEnd('/');
+            baseUrl = NormalizeBaseUrl(url);
             Logger.Info($"API base URL updated to: {baseUrl}");
         }
 
@@ -60,7 +60,7 @@ namespace TextToCad.SolidWorksAddin
         public static async Task<InstructionResponse> DryRunAsync(InstructionRequest request)
         {
             Logger.Info($"Calling /dry_run with instruction: '{request.Instruction}' (use_ai={request.UseAI})");
-            
+
             try
             {
                 var response = await PostJsonAsync<InstructionResponse>("/dry_run", request);
@@ -80,7 +80,7 @@ namespace TextToCad.SolidWorksAddin
         public static async Task<InstructionResponse> ProcessInstructionAsync(InstructionRequest request)
         {
             Logger.Info($"Calling /process_instruction with instruction: '{request.Instruction}' (use_ai={request.UseAI})");
-            
+
             try
             {
                 var response = await PostJsonAsync<InstructionResponse>("/process_instruction", request);
@@ -103,7 +103,7 @@ namespace TextToCad.SolidWorksAddin
             {
                 Logger.Info("Testing API connection...");
                 var response = await httpClient.GetAsync($"{baseUrl}/health");
-                
+
                 if (response.IsSuccessStatusCode)
                 {
                     Logger.Info("API connection successful");
@@ -128,10 +128,11 @@ namespace TextToCad.SolidWorksAddin
         private static async Task<TResponse> PostJsonAsync<TResponse>(string route, object payload)
         {
             string url = $"{baseUrl}{route}";
-            
+
             // Serialize request
             string jsonPayload = JsonConvert.SerializeObject(payload);
-            Logger.Debug($"POST {url}\nPayload: {jsonPayload}");
+            Logger.Debug($"POST {url}
+Payload: {jsonPayload}");
 
             var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
@@ -140,23 +141,14 @@ namespace TextToCad.SolidWorksAddin
 
             // Read response
             string responseBody = await response.Content.ReadAsStringAsync();
-            Logger.Debug($"Response status: {response.StatusCode}\nBody: {responseBody}");
-            
-            // DEBUG: Check if operations array exists in raw JSON
-            if (responseBody.Contains("\"operations\""))
-            {
-                Logger.Info("✓ Raw JSON contains 'operations' field");
-            }
-            else
-            {
-                Logger.Warning("⚠️ Raw JSON does NOT contain 'operations' field");
-            }
+            Logger.Debug($"Response status: {response.StatusCode}
+Body: {responseBody}");
 
             // Check for errors
             if (!response.IsSuccessStatusCode)
             {
                 string errorMessage = $"API request failed with status {response.StatusCode}";
-                
+
                 // Try to parse error details
                 try
                 {
@@ -178,13 +170,13 @@ namespace TextToCad.SolidWorksAddin
             try
             {
                 var result = JsonConvert.DeserializeObject<TResponse>(responseBody);
-                
-                // DEBUG: Log operations array for InstructionResponse
+
+                // Debug: Log operations array for InstructionResponse
                 if (result is InstructionResponse instructionResponse)
                 {
                     if (instructionResponse.Operations != null)
                     {
-                        Logger.Info($"✓ Deserialized InstructionResponse with {instructionResponse.Operations.Count} operations");
+                        Logger.Info($"Deserialized InstructionResponse with {instructionResponse.Operations.Count} operations");
                         for (int i = 0; i < instructionResponse.Operations.Count; i++)
                         {
                             var op = instructionResponse.Operations[i];
@@ -193,10 +185,10 @@ namespace TextToCad.SolidWorksAddin
                     }
                     else
                     {
-                        Logger.Warning("⚠️ InstructionResponse.Operations is NULL after deserialization");
+                        Logger.Warning("InstructionResponse.Operations is null after deserialization");
                     }
                 }
-                
+
                 return result;
             }
             catch (JsonException ex)
@@ -220,6 +212,18 @@ namespace TextToCad.SolidWorksAddin
 
             response.EnsureSuccessStatusCode();
             return responseBody;
+        }
+
+        private static string NormalizeBaseUrl(string url)
+        {
+            string normalized = url.Trim();
+            normalized = normalized.TrimEnd('/');
+            if (normalized.EndsWith("/docs", StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = normalized.Substring(0, normalized.Length - 5);
+            }
+
+            return normalized;
         }
     }
 }
