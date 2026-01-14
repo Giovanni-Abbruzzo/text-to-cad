@@ -57,6 +57,9 @@ namespace TextToCad.SolidWorksAddin
 
             // Update connection status
             UpdateConnectionStatus();
+
+            // Update replay status label
+            UpdateReplayStatusLabel();
         }
 
         #endregion
@@ -310,6 +313,104 @@ namespace TextToCad.SolidWorksAddin
         }
 
         /// <summary>
+        /// Handle Start Replay Session button click
+        /// </summary>
+        private void btnReplayStart_Click(object sender, EventArgs e)
+        {
+            if (ReplayLogger.BeginSession(out string sessionId, out string replayPath))
+            {
+                AppendLog($"Replay session started: {sessionId}", Color.Green);
+                AppendLog($"Replay log: {replayPath}", Color.DarkGray);
+                UpdateReplayStatusLabel();
+            }
+            else
+            {
+                AppendLog("Replay logging is disabled.", Color.Orange);
+            }
+        }
+
+        /// <summary>
+        /// Handle Pause Replay Session button click
+        /// </summary>
+        private void btnReplayPause_Click(object sender, EventArgs e)
+        {
+            if (!ReplayLogger.IsSessionActive())
+            {
+                AppendLog("No active replay session to pause.", Color.Orange);
+                return;
+            }
+
+            ReplayLogger.PauseSession();
+            AppendLog("Replay session paused.", Color.Orange);
+            UpdateReplayStatusLabel();
+        }
+
+        /// <summary>
+        /// Handle Resume Replay Session button click
+        /// </summary>
+        private void btnReplayResume_Click(object sender, EventArgs e)
+        {
+            if (!ReplayLogger.IsSessionActive())
+            {
+                AppendLog("No active replay session to resume.", Color.Orange);
+                return;
+            }
+
+            ReplayLogger.ResumeSession();
+            AppendLog("Replay session resumed.", Color.Green);
+            UpdateReplayStatusLabel();
+        }
+
+        /// <summary>
+        /// Handle End Replay Session button click
+        /// </summary>
+        private void btnReplayEnd_Click(object sender, EventArgs e)
+        {
+            if (!ReplayLogger.IsSessionActive())
+            {
+                AppendLog("No active replay session to end.", Color.Orange);
+                return;
+            }
+
+            ReplayLogger.EndSession();
+            AppendLog("Replay session ended.", Color.Orange);
+            UpdateReplayStatusLabel();
+        }
+
+        private void UpdateReplayStatusLabel()
+        {
+            if (lblReplayStatus == null)
+            {
+                return;
+            }
+
+            if (ReplayLogger.IsSessionActive())
+            {
+                int sessionIndex = ReplayLogger.GetSessionIndex();
+                if (ReplayLogger.IsPaused())
+                {
+                    lblReplayStatus.Text = $"Replay paused: session {sessionIndex} (resume to log)";
+                }
+                else
+                {
+                    lblReplayStatus.Text = $"Replay active: session {sessionIndex} (tracking commands)";
+                }
+            }
+            else
+            {
+                int lastSession = ReplayLogger.GetLastSessionIndex();
+                if (lastSession > 0)
+                {
+                    lblReplayStatus.Text = $"Replay idle. Use Replay Last Session to replay session {lastSession}.";
+                }
+                else
+                {
+                    lblReplayStatus.Text = "Replay idle. Use Replay Last Session to replay the last session.";
+                }
+            }
+        }
+
+        /// <summary>
         /// Test Units conversion utilities
         /// </summary>
         private void btnTestUnits_Click(object sender, EventArgs e)
@@ -548,6 +649,7 @@ namespace TextToCad.SolidWorksAddin
                 var modelInfo = BuildReplayModelInfo(model);
                 if (replayEnabled)
                 {
+                    UpdateReplayStatusLabel();
                     string replayPath = ReplayLogger.GetCurrentReplayFilePath();
                     if (!string.IsNullOrWhiteSpace(replayPath))
                     {
@@ -1206,6 +1308,12 @@ namespace TextToCad.SolidWorksAddin
             btnExecute.Enabled = enabled;
             btnUpdateUrl.Enabled = enabled;
             btnTestConnection.Enabled = enabled;
+            btnReplayStart.Enabled = enabled;
+            btnReplayPause.Enabled = enabled;
+            btnReplayResume.Enabled = enabled;
+            btnReplayEnd.Enabled = enabled;
+            btnReplayLast.Enabled = enabled;
+            btnOpenReplay.Enabled = enabled;
             txtInstruction.Enabled = enabled;
             txtApiBase.Enabled = enabled;
             chkUseAI.Enabled = enabled;

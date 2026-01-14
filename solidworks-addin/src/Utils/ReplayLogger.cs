@@ -18,6 +18,10 @@ namespace TextToCad.SolidWorksAddin.Utils
         private static string _sessionId;
         private static string _replayFilePath;
         private static int _sequence;
+        private static bool _sessionActive;
+        private static bool _isPaused;
+        private static int _sessionIndex;
+        private static int _lastSessionIndex;
 
         static ReplayLogger()
         {
@@ -53,13 +57,10 @@ namespace TextToCad.SolidWorksAddin.Utils
             if (!ReplayLoggingEnabled)
                 return false;
 
-            if (!string.IsNullOrWhiteSpace(_sessionId) && !string.IsNullOrWhiteSpace(_replayFilePath))
+            if (_sessionActive && !string.IsNullOrWhiteSpace(_sessionId) && !string.IsNullOrWhiteSpace(_replayFilePath))
                 return true;
 
-            string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
-            _sessionId = Guid.NewGuid().ToString("N");
-            _replayFilePath = Path.Combine(ReplayDirectory, $"replay_{timestamp}_{_sessionId}.jsonl");
-            _sequence = 0;
+            BeginSession(out _, out _);
             return true;
         }
 
@@ -71,6 +72,77 @@ namespace TextToCad.SolidWorksAddin.Utils
         public static string GetCurrentReplayFilePath()
         {
             return _replayFilePath;
+        }
+
+        public static bool IsSessionActive()
+        {
+            return _sessionActive;
+        }
+
+        public static bool IsPaused()
+        {
+            return _isPaused;
+        }
+
+        public static int GetSessionIndex()
+        {
+            return _sessionIndex;
+        }
+
+        public static int GetLastSessionIndex()
+        {
+            return _lastSessionIndex;
+        }
+
+        public static bool BeginSession(out string sessionId, out string replayFilePath)
+        {
+            sessionId = null;
+            replayFilePath = null;
+
+            if (!ReplayLoggingEnabled)
+                return false;
+
+            string timestamp = DateTime.UtcNow.ToString("yyyyMMdd_HHmmss");
+            _sessionIndex += 1;
+            _sessionId = Guid.NewGuid().ToString("N");
+            _replayFilePath = Path.Combine(ReplayDirectory, $"replay_{timestamp}_{_sessionId}.jsonl");
+            _sequence = 0;
+            _sessionActive = true;
+            _isPaused = false;
+
+            sessionId = _sessionId;
+            replayFilePath = _replayFilePath;
+            return true;
+        }
+
+        public static void EndSession()
+        {
+            if (_sessionActive)
+            {
+                _lastSessionIndex = _sessionIndex;
+            }
+
+            _sessionActive = false;
+            _isPaused = false;
+            _sessionId = null;
+            _replayFilePath = null;
+            _sequence = 0;
+        }
+
+        public static void PauseSession()
+        {
+            if (!_sessionActive)
+                return;
+
+            _isPaused = true;
+        }
+
+        public static void ResumeSession()
+        {
+            if (!_sessionActive)
+                return;
+
+            _isPaused = false;
         }
 
         public static string GetLatestReplayFilePath()
@@ -114,6 +186,9 @@ namespace TextToCad.SolidWorksAddin.Utils
         public static void AppendEntry(ReplayEntry entry)
         {
             if (!ReplayLoggingEnabled)
+                return;
+
+            if (_isPaused)
                 return;
 
             if (entry == null)

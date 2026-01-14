@@ -44,8 +44,13 @@ namespace TextToCad.SolidWorksAddin
             this.btnOpenLogs = new System.Windows.Forms.Button();
             this.btnReplayLast = new System.Windows.Forms.Button();
             this.btnOpenReplay = new System.Windows.Forms.Button();
+            this.btnReplayStart = new System.Windows.Forms.Button();
+            this.btnReplayPause = new System.Windows.Forms.Button();
+            this.btnReplayResume = new System.Windows.Forms.Button();
+            this.btnReplayEnd = new System.Windows.Forms.Button();
             this.btnTestConnection = new System.Windows.Forms.Button();
             this.lblConnectionStatus = new System.Windows.Forms.Label();
+            this.lblReplayStatus = new System.Windows.Forms.Label();
             this.btnUpdateUrl = new System.Windows.Forms.Button();
             this.lblApiBase = new System.Windows.Forms.Label();
             this.txtApiBase = new System.Windows.Forms.TextBox();
@@ -205,18 +210,23 @@ namespace TextToCad.SolidWorksAddin
             // 
             // grpSettings
             // 
+            this.grpSettings.Controls.Add(this.btnReplayEnd);
+            this.grpSettings.Controls.Add(this.btnReplayResume);
+            this.grpSettings.Controls.Add(this.btnReplayPause);
+            this.grpSettings.Controls.Add(this.btnReplayStart);
             this.grpSettings.Controls.Add(this.btnOpenReplay);
             this.grpSettings.Controls.Add(this.btnReplayLast);
             this.grpSettings.Controls.Add(this.btnOpenLogs);
             this.grpSettings.Controls.Add(this.btnTestConnection);
             this.grpSettings.Controls.Add(this.lblConnectionStatus);
+            this.grpSettings.Controls.Add(this.lblReplayStatus);
             this.grpSettings.Controls.Add(this.btnUpdateUrl);
             this.grpSettings.Controls.Add(this.lblApiBase);
             this.grpSettings.Controls.Add(this.txtApiBase);
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.grpSettings.Location = new System.Drawing.Point(10, 565);
             this.grpSettings.Name = "grpSettings";
-            this.grpSettings.Size = new System.Drawing.Size(330, 170);
+            this.grpSettings.Size = new System.Drawing.Size(330, 250);
             this.grpSettings.TabIndex = 9;
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "Settings";
@@ -228,7 +238,7 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 740);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 820);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
             this.grpTestUtils.TabIndex = 11;
@@ -282,7 +292,7 @@ namespace TextToCad.SolidWorksAddin
             // btnOpenLogs
             // 
             this.btnOpenLogs.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.btnOpenLogs.Location = new System.Drawing.Point(170, 105);
+            this.btnOpenLogs.Location = new System.Drawing.Point(170, 125);
             this.btnOpenLogs.Name = "btnOpenLogs";
             this.btnOpenLogs.Size = new System.Drawing.Size(154, 25);
             this.btnOpenLogs.TabIndex = 5;
@@ -293,7 +303,7 @@ namespace TextToCad.SolidWorksAddin
             // btnReplayLast
             // 
             this.btnReplayLast.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.btnReplayLast.Location = new System.Drawing.Point(6, 130);
+            this.btnReplayLast.Location = new System.Drawing.Point(6, 150);
             this.btnReplayLast.Name = "btnReplayLast";
             this.btnReplayLast.Size = new System.Drawing.Size(154, 25);
             this.btnReplayLast.TabIndex = 6;
@@ -304,7 +314,7 @@ namespace TextToCad.SolidWorksAddin
             // btnOpenReplay
             // 
             this.btnOpenReplay.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.btnOpenReplay.Location = new System.Drawing.Point(170, 130);
+            this.btnOpenReplay.Location = new System.Drawing.Point(170, 150);
             this.btnOpenReplay.Name = "btnOpenReplay";
             this.btnOpenReplay.Size = new System.Drawing.Size(154, 25);
             this.btnOpenReplay.TabIndex = 7;
@@ -312,10 +322,54 @@ namespace TextToCad.SolidWorksAddin
             this.btnOpenReplay.UseVisualStyleBackColor = true;
             this.btnOpenReplay.Click += new System.EventHandler(this.btnOpenReplay_Click);
             // 
+            // btnReplayStart
+            // 
+            this.btnReplayStart.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnReplayStart.Location = new System.Drawing.Point(6, 180);
+            this.btnReplayStart.Name = "btnReplayStart";
+            this.btnReplayStart.Size = new System.Drawing.Size(100, 25);
+            this.btnReplayStart.TabIndex = 8;
+            this.btnReplayStart.Text = "Start Session";
+            this.btnReplayStart.UseVisualStyleBackColor = true;
+            this.btnReplayStart.Click += new System.EventHandler(this.btnReplayStart_Click);
+            // 
+            // btnReplayPause
+            // 
+            this.btnReplayPause.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnReplayPause.Location = new System.Drawing.Point(112, 180);
+            this.btnReplayPause.Name = "btnReplayPause";
+            this.btnReplayPause.Size = new System.Drawing.Size(100, 25);
+            this.btnReplayPause.TabIndex = 9;
+            this.btnReplayPause.Text = "Pause";
+            this.btnReplayPause.UseVisualStyleBackColor = true;
+            this.btnReplayPause.Click += new System.EventHandler(this.btnReplayPause_Click);
+            // 
+            // btnReplayResume
+            // 
+            this.btnReplayResume.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnReplayResume.Location = new System.Drawing.Point(218, 180);
+            this.btnReplayResume.Name = "btnReplayResume";
+            this.btnReplayResume.Size = new System.Drawing.Size(100, 25);
+            this.btnReplayResume.TabIndex = 10;
+            this.btnReplayResume.Text = "Resume";
+            this.btnReplayResume.UseVisualStyleBackColor = true;
+            this.btnReplayResume.Click += new System.EventHandler(this.btnReplayResume_Click);
+            // 
+            // btnReplayEnd
+            // 
+            this.btnReplayEnd.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnReplayEnd.Location = new System.Drawing.Point(6, 210);
+            this.btnReplayEnd.Name = "btnReplayEnd";
+            this.btnReplayEnd.Size = new System.Drawing.Size(312, 25);
+            this.btnReplayEnd.TabIndex = 11;
+            this.btnReplayEnd.Text = "End Session";
+            this.btnReplayEnd.UseVisualStyleBackColor = true;
+            this.btnReplayEnd.Click += new System.EventHandler(this.btnReplayEnd_Click);
+            // 
             // btnTestConnection
             // 
             this.btnTestConnection.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.btnTestConnection.Location = new System.Drawing.Point(6, 105);
+            this.btnTestConnection.Location = new System.Drawing.Point(6, 125);
             this.btnTestConnection.Name = "btnTestConnection";
             this.btnTestConnection.Size = new System.Drawing.Size(154, 25);
             this.btnTestConnection.TabIndex = 4;
@@ -332,6 +386,15 @@ namespace TextToCad.SolidWorksAddin
             this.lblConnectionStatus.Size = new System.Drawing.Size(78, 13);
             this.lblConnectionStatus.TabIndex = 3;
             this.lblConnectionStatus.Text = "Disconnected";
+            // 
+            // lblReplayStatus
+            // 
+            this.lblReplayStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lblReplayStatus.Location = new System.Drawing.Point(6, 95);
+            this.lblReplayStatus.Name = "lblReplayStatus";
+            this.lblReplayStatus.Size = new System.Drawing.Size(318, 30);
+            this.lblReplayStatus.TabIndex = 4;
+            this.lblReplayStatus.Text = "Replay idle. Use Replay Last Session to replay the last session.";
             // 
             // btnUpdateUrl
             // 
@@ -366,7 +429,7 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 840);
+            this.lblStatus.Location = new System.Drawing.Point(0, 920);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
@@ -394,7 +457,7 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 865);
+            this.Size = new System.Drawing.Size(350, 945);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
             this.grpLog.ResumeLayout(false);
@@ -425,10 +488,15 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.TextBox txtApiBase;
         private System.Windows.Forms.Button btnUpdateUrl;
         private System.Windows.Forms.Label lblConnectionStatus;
+        private System.Windows.Forms.Label lblReplayStatus;
         private System.Windows.Forms.Button btnTestConnection;
         private System.Windows.Forms.Button btnOpenLogs;
         private System.Windows.Forms.Button btnReplayLast;
         private System.Windows.Forms.Button btnOpenReplay;
+        private System.Windows.Forms.Button btnReplayStart;
+        private System.Windows.Forms.Button btnReplayPause;
+        private System.Windows.Forms.Button btnReplayResume;
+        private System.Windows.Forms.Button btnReplayEnd;
         private System.Windows.Forms.GroupBox grpTestUtils;
         private System.Windows.Forms.Button btnTestUnits;
         private System.Windows.Forms.Button btnTestPlanes;
