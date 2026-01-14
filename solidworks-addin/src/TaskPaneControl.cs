@@ -1,8 +1,10 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TextToCad.SolidWorksAddin.Models;
+using TextToCad.SolidWorksAddin.Utils;
 
 namespace TextToCad.SolidWorksAddin
 {
@@ -146,11 +148,18 @@ namespace TextToCad.SolidWorksAddin
                 isProcessing = true;
                 SetUIEnabled(false);
 
+                string instructionText = txtInstruction.Text.Trim();
+
                 AppendLog("Executing instruction...", Color.Blue);
-                Logger.Info($"Execute requested: '{txtInstruction.Text}'");
+                Logger.Info($"Execute requested: '{instructionText}'");
+
+                if (TryExecuteReplayCommand(instructionText))
+                {
+                    return;
+                }
 
                 // Create request
-                var request = new InstructionRequest(txtInstruction.Text, chkUseAI.Checked);
+                var request = new InstructionRequest(instructionText, chkUseAI.Checked);
 
                 // Call API to get parsed response
                 var response = await ApiClient.ProcessInstructionAsync(request);
@@ -164,7 +173,7 @@ namespace TextToCad.SolidWorksAddin
                 AppendLog("", Color.Black);
                 AppendLog("Creating CAD geometry...", Color.Blue);
 
-                bool geometryCreated = ExecuteCADOperation(response);
+                bool geometryCreated = ExecuteCADOperation(response, chkUseAI.Checked);
 
                 if (geometryCreated)
                 {
@@ -258,6 +267,46 @@ namespace TextToCad.SolidWorksAddin
         private void btnOpenLogs_Click(object sender, EventArgs e)
         {
             Logger.OpenLogDirectory();
+        }
+
+        /// <summary>
+        /// Handle Replay Last Session button click
+        /// </summary>
+        private void btnReplayLast_Click(object sender, EventArgs e)
+        {
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+
+                AppendLog("Replaying last session...", Color.Blue);
+                Logger.Info("Replay last session requested");
+
+                TryExecuteReplayCommand("replay last");
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Replay failed: {ex.Message}", Color.Red);
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
+        /// <summary>
+        /// Handle Open Replay Folder button click
+        /// </summary>
+        private void btnOpenReplay_Click(object sender, EventArgs e)
+        {
+            ReplayLogger.OpenReplayDirectory();
         }
 
         /// <summary>
@@ -454,7 +503,7 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         /// <param name="response">Parsed instruction response from backend</param>
         /// <returns>True if all operations succeeded; false if any failed</returns>
-        private bool ExecuteCADOperation(InstructionResponse response)
+        private bool ExecuteCADOperation(InstructionResponse response, bool useAI)
         {
             try
             {
@@ -495,6 +544,17 @@ namespace TextToCad.SolidWorksAddin
                 // Create logger that forwards to UI
                 var logger = new Utils.Logger(msg => AppendLog(msg, Color.DarkGray));
 
+                bool replayEnabled = ReplayLogger.EnsureSession();
+                var modelInfo = BuildReplayModelInfo(model);
+                if (replayEnabled)
+                {
+                    string replayPath = ReplayLogger.GetCurrentReplayFilePath();
+                    if (!string.IsNullOrWhiteSpace(replayPath))
+                    {
+                        AppendLog($"Replay log: {replayPath}", Color.DarkGray);
+                    }
+                }
+
                 if (response.Operations != null)
                 {
                     AppendLog($"Operations array present: {response.Operations.Count} items", Color.DarkGray);
@@ -526,6 +586,7 @@ namespace TextToCad.SolidWorksAddin
 
                         try
                         {
+                            string errorMessage = null;
                             bool success = ExecuteSingleOperation(swApp, model, operation, logger);
 
                             if (success)
@@ -536,13 +597,42 @@ namespace TextToCad.SolidWorksAddin
                             {
                                 AppendLog($"Operation {i + 1} failed", Color.Red);
                                 allSucceeded = false;
+                                errorMessage = "Operation failed - see log for details.";
                             }
+
+                            ReplayLogger.AppendEntry(new ReplayEntry
+                            {
+                                SchemaVersion = response.SchemaVersion ?? "1.0",
+                                Instruction = response.Instruction,
+                                UseAI = useAI,
+                                Source = response.Source,
+                                OperationIndex = i + 1,
+                                OperationCount = response.Operations.Count,
+                                Operation = operation,
+                                Plan = response.Plan ?? new List<string>(),
+                                Model = modelInfo,
+                                Result = new ReplayResult { Success = success, Error = errorMessage }
+                            });
                         }
                         catch (Exception opEx)
                         {
                             AppendLog($"Operation {i + 1} threw exception: {opEx.Message}", Color.Red);
                             System.Diagnostics.Debug.WriteLine($"Operation {i + 1} exception: {opEx.Message}\n{opEx.StackTrace}");
                             allSucceeded = false;
+
+                            ReplayLogger.AppendEntry(new ReplayEntry
+                            {
+                                SchemaVersion = response.SchemaVersion ?? "1.0",
+                                Instruction = response.Instruction,
+                                UseAI = useAI,
+                                Source = response.Source,
+                                OperationIndex = i + 1,
+                                OperationCount = response.Operations.Count,
+                                Operation = operation,
+                                Plan = response.Plan ?? new List<string>(),
+                                Model = modelInfo,
+                                Result = new ReplayResult { Success = false, Error = opEx.Message }
+                            });
                         }
                     }
 
@@ -568,7 +658,27 @@ namespace TextToCad.SolidWorksAddin
                         return false;
                     }
 
-                    return ExecuteSingleOperation(swApp, model, parsed, logger);
+                    bool success = ExecuteSingleOperation(swApp, model, parsed, logger);
+
+                    ReplayLogger.AppendEntry(new ReplayEntry
+                    {
+                        SchemaVersion = response.SchemaVersion ?? "1.0",
+                        Instruction = response.Instruction,
+                        UseAI = useAI,
+                        Source = response.Source,
+                        OperationIndex = 1,
+                        OperationCount = 1,
+                        Operation = parsed,
+                        Plan = response.Plan ?? new List<string>(),
+                        Model = modelInfo,
+                        Result = new ReplayResult
+                        {
+                            Success = success,
+                            Error = success ? null : "Operation failed - see log for details."
+                        }
+                    });
+
+                    return success;
                 }
             }
             catch (Exception ex)
@@ -578,6 +688,94 @@ namespace TextToCad.SolidWorksAddin
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 return false;
             }
+        }
+
+        private bool TryExecuteReplayCommand(string instructionText)
+        {
+            if (!ReplayLogger.TryParseReplayCommand(instructionText, out string replayPath, out string error))
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(error))
+            {
+                AppendLog(error, Color.Red);
+                return true;
+            }
+
+            AppendLog($"Replay command detected: {replayPath}", Color.Blue);
+
+            var entries = ReplayLogger.LoadEntries(replayPath, out string loadError);
+            if (!string.IsNullOrWhiteSpace(loadError))
+            {
+                AppendLog(loadError, Color.Red);
+                return true;
+            }
+
+            if (entries.Count == 0)
+            {
+                AppendLog("Replay file contains no operations.", Color.Red);
+                return true;
+            }
+
+            var operations = new List<ParsedParameters>();
+            foreach (var entry in entries)
+            {
+                if (entry?.Operation != null)
+                {
+                    operations.Add(entry.Operation);
+                }
+            }
+
+            if (operations.Count == 0)
+            {
+                AppendLog("Replay file has no valid operations to execute.", Color.Red);
+                return true;
+            }
+
+            var firstEntry = entries[0];
+            var replayResponse = new InstructionResponse
+            {
+                SchemaVersion = firstEntry.SchemaVersion ?? "1.0",
+                Instruction = instructionText,
+                Source = string.IsNullOrWhiteSpace(firstEntry.Source) ? "replay" : firstEntry.Source,
+                Plan = firstEntry.Plan ?? new List<string>(),
+                ParsedParameters = operations[0],
+                Operations = operations
+            };
+
+            DisplayResponse(replayResponse, isPreview: false);
+
+            AppendLog("Replaying CAD geometry...", Color.Blue);
+            bool success = ExecuteCADOperation(replayResponse, useAI: false);
+
+            if (success)
+            {
+                AppendLog("Replay complete", Color.Green);
+            }
+            else
+            {
+                AppendLog("Replay failed (see details above)", Color.Orange);
+            }
+
+            return true;
+        }
+
+        private ReplayModelInfo BuildReplayModelInfo(SolidWorks.Interop.sldworks.IModelDoc2 model)
+        {
+            string title = model?.GetTitle();
+            string path = model?.GetPathName();
+            if (string.IsNullOrWhiteSpace(path))
+            {
+                path = null;
+            }
+
+            return new ReplayModelInfo
+            {
+                DocumentTitle = title,
+                DocumentPath = path,
+                Units = "mm"
+            };
         }
 
         /// <summary>

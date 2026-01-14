@@ -42,6 +42,8 @@ namespace TextToCad.SolidWorksAddin
             this.btnClearLog = new System.Windows.Forms.Button();
             this.grpSettings = new System.Windows.Forms.GroupBox();
             this.btnOpenLogs = new System.Windows.Forms.Button();
+            this.btnReplayLast = new System.Windows.Forms.Button();
+            this.btnOpenReplay = new System.Windows.Forms.Button();
             this.btnTestConnection = new System.Windows.Forms.Button();
             this.lblConnectionStatus = new System.Windows.Forms.Label();
             this.btnUpdateUrl = new System.Windows.Forms.Button();
@@ -203,6 +205,8 @@ namespace TextToCad.SolidWorksAddin
             // 
             // grpSettings
             // 
+            this.grpSettings.Controls.Add(this.btnOpenReplay);
+            this.grpSettings.Controls.Add(this.btnReplayLast);
             this.grpSettings.Controls.Add(this.btnOpenLogs);
             this.grpSettings.Controls.Add(this.btnTestConnection);
             this.grpSettings.Controls.Add(this.lblConnectionStatus);
@@ -212,7 +216,7 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.grpSettings.Location = new System.Drawing.Point(10, 565);
             this.grpSettings.Name = "grpSettings";
-            this.grpSettings.Size = new System.Drawing.Size(330, 140);
+            this.grpSettings.Size = new System.Drawing.Size(330, 170);
             this.grpSettings.TabIndex = 9;
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "Settings";
@@ -224,7 +228,7 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 710);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 740);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
             this.grpTestUtils.TabIndex = 11;
@@ -286,6 +290,28 @@ namespace TextToCad.SolidWorksAddin
             this.btnOpenLogs.UseVisualStyleBackColor = true;
             this.btnOpenLogs.Click += new System.EventHandler(this.btnOpenLogs_Click);
             // 
+            // btnReplayLast
+            // 
+            this.btnReplayLast.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnReplayLast.Location = new System.Drawing.Point(6, 130);
+            this.btnReplayLast.Name = "btnReplayLast";
+            this.btnReplayLast.Size = new System.Drawing.Size(154, 25);
+            this.btnReplayLast.TabIndex = 6;
+            this.btnReplayLast.Text = "Replay Last Session";
+            this.btnReplayLast.UseVisualStyleBackColor = true;
+            this.btnReplayLast.Click += new System.EventHandler(this.btnReplayLast_Click);
+            // 
+            // btnOpenReplay
+            // 
+            this.btnOpenReplay.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnOpenReplay.Location = new System.Drawing.Point(170, 130);
+            this.btnOpenReplay.Name = "btnOpenReplay";
+            this.btnOpenReplay.Size = new System.Drawing.Size(154, 25);
+            this.btnOpenReplay.TabIndex = 7;
+            this.btnOpenReplay.Text = "Open Replay Folder";
+            this.btnOpenReplay.UseVisualStyleBackColor = true;
+            this.btnOpenReplay.Click += new System.EventHandler(this.btnOpenReplay_Click);
+            // 
             // btnTestConnection
             // 
             this.btnTestConnection.Font = new System.Drawing.Font("Segoe UI", 8F);
@@ -340,7 +366,7 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 810);
+            this.lblStatus.Location = new System.Drawing.Point(0, 840);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
@@ -368,7 +394,7 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 835);
+            this.Size = new System.Drawing.Size(350, 865);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
             this.grpLog.ResumeLayout(false);
@@ -401,6 +427,8 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.Label lblConnectionStatus;
         private System.Windows.Forms.Button btnTestConnection;
         private System.Windows.Forms.Button btnOpenLogs;
+        private System.Windows.Forms.Button btnReplayLast;
+        private System.Windows.Forms.Button btnOpenReplay;
         private System.Windows.Forms.GroupBox grpTestUtils;
         private System.Windows.Forms.Button btnTestUnits;
         private System.Windows.Forms.Button btnTestPlanes;
