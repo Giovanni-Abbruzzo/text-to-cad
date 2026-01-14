@@ -97,6 +97,7 @@
     <!-- Sprint SW-6: Face Mapping, Fillet, and Guardrails -->
     <Compile Include="src\Utils\FaceMapping.cs" />
     <Compile Include="src\Builders\FilletBuilder.cs" />
+    <Compile Include="src\Builders\ChamferBuilder.cs" />
     <Compile Include="src\Controllers\ExecuteController.cs" />
   </ItemGroup>
   <ItemGroup>

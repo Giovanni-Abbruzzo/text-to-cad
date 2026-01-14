@@ -593,6 +593,9 @@ namespace TextToCad.SolidWorksAddin
             {
                 string action = parsed.Action?.ToLower() ?? "";
                 string shape = parsed.ParametersData?.Shape?.ToLower() ?? "";
+                bool hasChamferParams = parsed.ParametersData?.ChamferDistanceMm.HasValue == true ||
+                                        !string.IsNullOrWhiteSpace(parsed.ParametersData?.ChamferTarget);
+                bool hasFilletParams = !string.IsNullOrWhiteSpace(parsed.ParametersData?.FilletTarget);
 
                 AppendLog($"Action: {parsed.Action}, Shape: {parsed.ParametersData?.Shape}", Color.DarkGray);
 
@@ -618,15 +621,22 @@ namespace TextToCad.SolidWorksAddin
                     return CreateCircularHoles(swApp, model, parsed, logger);
                 }
 
+                // Chamfer
+                if (action.Contains("chamfer") || shape.Contains("chamfer") || (hasChamferParams && string.IsNullOrEmpty(shape)))
+                {
+                    AppendLog("Detected: Chamfer operation", Color.Blue);
+                    return CreateChamfer(swApp, model, parsed, logger);
+                }
+
                 // Fillet
-                if (action.Contains("fillet") || shape.Contains("fillet"))
+                if (action.Contains("fillet") || shape.Contains("fillet") || (hasFilletParams && string.IsNullOrEmpty(shape)))
                 {
                     AppendLog("Detected: Fillet operation", Color.Blue);
                     return CreateFillet(swApp, model, parsed, logger);
                 }
 
                 AppendLog($"Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
-                AppendLog("Currently supported: base plates, cylinders, circular hole patterns, fillets", Color.Gray);
+                AppendLog("Currently supported: base plates, cylinders, circular hole patterns, fillets, chamfers", Color.Gray);
                 System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation: Unrecognized action/shape: {action}/{shape}");
                 return false;
             }
@@ -819,28 +829,95 @@ namespace TextToCad.SolidWorksAddin
                     return false;
                 }
 
-                double radiusMm = data.RadiusMm ?? data.DiameterMm ?? 2.0;
-                bool allEdges = data.Count.HasValue && data.Count.Value == 0;
+                double? radiusMm = data.RadiusMm ?? data.DiameterMm;
+                if (!radiusMm.HasValue || radiusMm.Value <= 0)
+                {
+                    AppendLog("Fillet requires a positive radius in mm (e.g., 'fillet radius 2 mm')", Color.Red);
+                    return false;
+                }
+
+                string target = data.FilletTarget?.Trim().ToLowerInvariant();
+                bool allEdges = target == "all_edges";
 
                 AppendLog("Creating fillet:", Color.Blue);
-                AppendLog($"  Radius: {radiusMm}mm", Color.DarkGray);
+                AppendLog($"  Radius: {radiusMm.Value}mm", Color.DarkGray);
                 AppendLog($"  Target: {(allEdges ? "All edges" : "Recent feature edges")}", Color.DarkGray);
 
                 var builder = new Builders.FilletBuilder(swApp, logger);
 
                 if (allEdges)
                 {
-                    return builder.ApplyFilletToAllSharpEdges(model, radiusMm);
+                    return builder.ApplyFilletToAllSharpEdges(model, radiusMm.Value);
                 }
                 else
                 {
-                    return builder.ApplyFilletToRecentEdges(model, radiusMm);
+                    return builder.ApplyFilletToRecentEdges(model, radiusMm.Value);
                 }
             }
             catch (Exception ex)
             {
                 AppendLog($"Fillet creation failed: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"CreateFillet exception: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create a chamfer using ChamferBuilder
+        /// </summary>
+        private bool CreateChamfer(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                var data = parsed.ParametersData;
+                if (data == null)
+                {
+                    AppendLog("No parameters data for chamfer", Color.Orange);
+                    return false;
+                }
+
+                double? distanceMm = data.ChamferDistanceMm;
+                if (!distanceMm.HasValue || distanceMm.Value <= 0)
+                {
+                    AppendLog("Chamfer requires a positive distance in mm (e.g., 'chamfer 2 mm at 45 deg')", Color.Red);
+                    return false;
+                }
+
+                double? angleDeg = data.AngleDeg;
+                if (angleDeg.HasValue && (angleDeg.Value <= 0 || angleDeg.Value >= 180))
+                {
+                    AppendLog($"Invalid chamfer angle: {angleDeg.Value} deg (must be between 0 and 180)", Color.Red);
+                    return false;
+                }
+
+                string target = data.ChamferTarget?.Trim().ToLowerInvariant();
+                bool allEdges = target == "all_edges";
+
+                AppendLog("Creating chamfer:", Color.Blue);
+                AppendLog($"  Distance: {distanceMm.Value}mm", Color.DarkGray);
+                if (angleDeg.HasValue)
+                    AppendLog($"  Angle: {angleDeg.Value} deg", Color.DarkGray);
+                AppendLog($"  Target: {(allEdges ? "All edges" : "Recent feature edges")}", Color.DarkGray);
+
+                var builder = new Builders.ChamferBuilder(swApp, logger);
+
+                if (allEdges)
+                {
+                    return builder.ApplyChamferToAllSharpEdges(model, distanceMm.Value, angleDeg);
+                }
+                else
+                {
+                    return builder.ApplyChamferToRecentEdges(model, distanceMm.Value, angleDeg);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Chamfer creation failed: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"CreateChamfer exception: {ex.Message}");
                 return false;
             }
         }

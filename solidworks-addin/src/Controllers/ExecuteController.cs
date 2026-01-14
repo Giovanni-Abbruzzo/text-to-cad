@@ -201,11 +201,13 @@ namespace TextToCad.SolidWorksAddin.Controllers
                 // Route to appropriate builder based on action and shape
                 string action = parsed.Action?.ToLowerInvariant() ?? "";
                 string shape = data.Shape?.ToLowerInvariant() ?? "";
+                bool hasChamferParams = data.ChamferDistanceMm.HasValue || !string.IsNullOrWhiteSpace(data.ChamferTarget);
+                bool hasFilletParams = !string.IsNullOrWhiteSpace(data.FilletTarget);
 
                 _log.Info($"Routing operation: action='{action}', shape='{shape}'");
 
                 // Handle fillet operation
-                if (action == "fillet" || shape == "fillet")
+                if (action == "fillet" || shape == "fillet" || (hasFilletParams && string.IsNullOrEmpty(shape)))
                 {
                     return ExecuteFillet(model, data);
                 }
@@ -229,12 +231,10 @@ namespace TextToCad.SolidWorksAddin.Controllers
                     return ExecuteHoles(model, data);
                 }
 
-                // Handle chamfer (future)
-                if (action.Contains("chamfer") || shape.Contains("chamfer"))
+                // Handle chamfer
+                if (action.Contains("chamfer") || shape.Contains("chamfer") || (hasChamferParams && string.IsNullOrEmpty(shape)))
                 {
-                    _log.Warn("Chamfer operation requested but not implemented yet");
-                    // Future implementation -- chamfer addition here.
-                    return false;
+                    return ExecuteChamfer(model, data);
                 }
 
                 _log.Warn($"Unhandled operation: action='{action}', shape='{shape}'");
@@ -372,25 +372,78 @@ namespace TextToCad.SolidWorksAddin.Controllers
         {
             try
             {
-                double radiusMm = data.RadiusMm ?? data.DiameterMm ?? 2.0; // Use radius when available
-                bool allEdges = data.Count.HasValue && data.Count.Value == 0; // Count=0 means all edges
+                double? radiusMm = data.RadiusMm ?? data.DiameterMm;
+                if (!radiusMm.HasValue || radiusMm.Value <= 0)
+                {
+                    _log.Error("Fillet requires a positive radius in mm (e.g., 'fillet radius 2 mm')");
+                    return false;
+                }
 
-                _log.Info($"Creating fillet: radius={radiusMm} mm, target={(allEdges ? "all edges" : "recent feature")}");
+                string target = data.FilletTarget?.Trim().ToLowerInvariant();
+                bool allEdges = target == "all_edges";
+
+                _log.Info($"Creating fillet: radius={radiusMm.Value} mm, target={(allEdges ? "all edges" : "recent feature")}");
 
                 var builder = new FilletBuilder(_sw, _log);
 
                 if (allEdges)
                 {
-                    return builder.ApplyFilletToAllSharpEdges(model, radiusMm);
+                    return builder.ApplyFilletToAllSharpEdges(model, radiusMm.Value);
                 }
                 else
                 {
-                    return builder.ApplyFilletToRecentEdges(model, radiusMm);
+                    return builder.ApplyFilletToRecentEdges(model, radiusMm.Value);
                 }
             }
             catch (Exception ex)
             {
                 _log.Error($"Fillet execution failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Execute chamfer creation.
+        /// </summary>
+        private bool ExecuteChamfer(IModelDoc2 model, Parameters data)
+        {
+            try
+            {
+                double? distanceMm = data.ChamferDistanceMm;
+                if (!distanceMm.HasValue || distanceMm.Value <= 0)
+                {
+                    _log.Error("Chamfer requires a positive distance in mm (e.g., 'chamfer 2 mm at 45 deg')");
+                    return false;
+                }
+
+                double? angleDeg = data.AngleDeg;
+                if (angleDeg.HasValue && (angleDeg.Value <= 0 || angleDeg.Value >= 180))
+                {
+                    _log.Error($"Invalid chamfer angle: {angleDeg.Value} deg (must be between 0 and 180)");
+                    return false;
+                }
+
+                string target = data.ChamferTarget?.Trim().ToLowerInvariant();
+                bool allEdges = target == "all_edges";
+
+                _log.Info($"Creating chamfer: distance={distanceMm.Value} mm, target={(allEdges ? "all edges" : "recent feature")}");
+                if (angleDeg.HasValue)
+                    _log.Info($"  Angle: {angleDeg.Value} deg");
+
+                var builder = new ChamferBuilder(_sw, _log);
+
+                if (allEdges)
+                {
+                    return builder.ApplyChamferToAllSharpEdges(model, distanceMm.Value, angleDeg);
+                }
+                else
+                {
+                    return builder.ApplyChamferToRecentEdges(model, distanceMm.Value, angleDeg);
+                }
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Chamfer execution failed: {ex.Message}");
                 return false;
             }
         }
@@ -461,6 +514,12 @@ namespace TextToCad.SolidWorksAddin.Controllers
             if (data.RadiusMm.HasValue && data.RadiusMm.Value <= 0)
             {
                 _log.Error($"Invalid radius: {data.RadiusMm.Value} mm (must be > 0)");
+                return false;
+            }
+
+            if (data.ChamferDistanceMm.HasValue && data.ChamferDistanceMm.Value <= 0)
+            {
+                _log.Error($"Invalid chamfer distance: {data.ChamferDistanceMm.Value} mm (must be > 0)");
                 return false;
             }
 

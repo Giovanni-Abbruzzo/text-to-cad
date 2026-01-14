@@ -59,6 +59,15 @@ namespace TextToCad.SolidWorksAddin.Models
         [JsonProperty("flip_direction")]
         public bool? FlipDirection { get; set; }
 
+        [JsonProperty("fillet_target")]
+        public string FilletTarget { get; set; }
+
+        [JsonProperty("chamfer_distance_mm")]
+        public double? ChamferDistanceMm { get; set; }
+
+        [JsonProperty("chamfer_target")]
+        public string ChamferTarget { get; set; }
+
         [JsonProperty("shape")]
         public string Shape { get; set; }
 
@@ -73,7 +82,7 @@ namespace TextToCad.SolidWorksAddin.Models
     public class ParsedParameters
     {
         /// <summary>
-        /// CAD action to perform (extrude, create_hole, fillet, pattern, create_feature)
+        /// CAD action to perform (extrude, create_hole, fillet, chamfer, pattern, create_feature)
         /// </summary>
         [JsonProperty("action")]
         public string Action { get; set; }
@@ -99,6 +108,8 @@ namespace TextToCad.SolidWorksAddin.Models
                     return "Apply Fillet";
                 case "pattern":
                     return "Create Pattern";
+                case "chamfer":
+                    return "Apply Chamfer";
                 case "create_feature":
                     return "Create Feature";
                 default:
@@ -148,6 +159,15 @@ namespace TextToCad.SolidWorksAddin.Models
 
             if (ParametersData.FlipDirection.HasValue)
                 parts.Add($"Flip Direction: {ParametersData.FlipDirection.Value}");
+
+            if (!string.IsNullOrWhiteSpace(ParametersData.FilletTarget))
+                parts.Add($"Fillet Target: {ParametersData.FilletTarget}");
+
+            if (ParametersData.ChamferDistanceMm.HasValue)
+                parts.Add($"Chamfer Distance: {ParametersData.ChamferDistanceMm.Value} mm");
+
+            if (!string.IsNullOrWhiteSpace(ParametersData.ChamferTarget))
+                parts.Add($"Chamfer Target: {ParametersData.ChamferTarget}");
 
             if (ParametersData.Count.HasValue)
                 parts.Add($"Count: {ParametersData.Count.Value}");

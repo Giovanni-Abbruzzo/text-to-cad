@@ -67,7 +67,7 @@ def parse_instruction_with_ai(text: str) -> Dict[str, Any]:
 
 Return ONLY valid JSON matching this exact schema:
 {
-  "action": "create_hole" | "extrude" | "fillet" | "pattern" | "create_feature",
+  "action": "create_hole" | "extrude" | "fillet" | "pattern" | "chamfer" | "create_feature",
     "parameters": {
       "count": number | null,
       "diameter_mm": number | null,
@@ -80,6 +80,9 @@ Return ONLY valid JSON matching this exact schema:
       "draft_angle_deg": number | null,
       "draft_outward": boolean | null,
       "flip_direction": boolean | null,
+      "fillet_target": "all_edges" | "recent_feature" | null,
+      "chamfer_distance_mm": number | null,
+      "chamfer_target": "all_edges" | "recent_feature" | null,
       "shape": string | null,
       "pattern": {
         "type": "circular" | "linear" | null,
@@ -101,6 +104,10 @@ Rules:
 - Radius mapping: Map "radius" to radius_mm (leave diameter_mm null unless explicitly stated)
 - Draft mapping: If instruction mentions draft or taper, set draft_angle_deg and draft_outward when specified
 - Flip mapping: If instruction mentions flip/reverse direction, set flip_direction = true
+- Fillet target mapping: If instruction mentions all edges or all sharp edges, set fillet_target = "all_edges"; if it mentions last/recent feature, set fillet_target = "recent_feature"
+- Chamfer action: If instruction requests chamfer or bevel, set action = "chamfer"
+- Chamfer mapping: Use chamfer_distance_mm when "chamfer" or "bevel" is requested; include angle_deg if specified
+- Chamfer target mapping: If instruction mentions all edges or all sharp edges, set chamfer_target = "all_edges"; if it mentions last/recent feature, set chamfer_target = "recent_feature"
 - For patterns, include type, count, and angle if specified
 - Pattern detection: Look for keywords like "array", "pattern", "circular", "linear", "repeat", "copy", "around", "in a circle", "in a line"
 - If no pattern is mentioned, set pattern to null

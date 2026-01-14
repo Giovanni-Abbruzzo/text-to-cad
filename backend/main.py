@@ -206,6 +206,9 @@ class ParsedParameters(BaseModel):
         draft_angle_deg (Optional[float]): Draft angle in degrees - null if not detected
         draft_outward (Optional[bool]): Draft direction flag (true = outward, false = inward) - null if not detected
         flip_direction (Optional[bool]): Flip extrusion/cut direction - null if not detected
+        fillet_target (Optional[str]): Fillet target selection ("all_edges" or "recent_feature") - null if not detected
+        chamfer_distance_mm (Optional[float]): Chamfer distance in millimeters - null if not detected
+        chamfer_target (Optional[str]): Chamfer target selection ("all_edges" or "recent_feature") - null if not detected
         count (Optional[int]): Count for patterns or arrays - null if not detected
         pattern (Optional[PatternInfo]): Pattern information if applicable - null if not detected
     """
@@ -221,6 +224,9 @@ class ParsedParameters(BaseModel):
     draft_angle_deg: Optional[float] = None
     draft_outward: Optional[bool] = None
     flip_direction: Optional[bool] = None
+    fillet_target: Optional[str] = None
+    chamfer_distance_mm: Optional[float] = None
+    chamfer_target: Optional[str] = None
     count: Optional[int] = None
     pattern: Optional[PatternInfo] = None
 
@@ -416,6 +422,30 @@ def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
     draft_angle_deg = _coerce_float(raw_params.get("draft_angle_deg"))
     draft_outward = _coerce_bool(raw_params.get("draft_outward"))
     flip_direction = _coerce_bool(raw_params.get("flip_direction"))
+    chamfer_distance_mm = _coerce_float(raw_params.get("chamfer_distance_mm"))
+    fillet_target = raw_params.get("fillet_target")
+    if isinstance(fillet_target, str):
+        normalized_target = fillet_target.strip().lower().replace(" ", "_").replace("-", "_")
+        if normalized_target in {"all_edges", "all_sharp_edges", "all"}:
+            fillet_target = "all_edges"
+        elif normalized_target in {"recent_feature", "recent", "last_feature", "last", "previous_feature"}:
+            fillet_target = "recent_feature"
+        else:
+            fillet_target = None
+    else:
+        fillet_target = None
+
+    chamfer_target = raw_params.get("chamfer_target")
+    if isinstance(chamfer_target, str):
+        normalized_target = chamfer_target.strip().lower().replace(" ", "_").replace("-", "_")
+        if normalized_target in {"all_edges", "all_sharp_edges", "all"}:
+            chamfer_target = "all_edges"
+        elif normalized_target in {"recent_feature", "recent", "last_feature", "last", "previous_feature"}:
+            chamfer_target = "recent_feature"
+        else:
+            chamfer_target = None
+    else:
+        chamfer_target = None
 
     if draft_angle_deg is not None and draft_angle_deg <= 0:
         draft_angle_deg = None
@@ -437,6 +467,9 @@ def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
         "draft_angle_deg": draft_angle_deg,
         "draft_outward": draft_outward,
         "flip_direction": flip_direction,
+        "fillet_target": fillet_target,
+        "chamfer_distance_mm": chamfer_distance_mm,
+        "chamfer_target": chamfer_target,
         "shape": shape,
         "pattern": pattern,
     }
@@ -474,6 +507,18 @@ def normalize_parsed_result(raw_result: Any) -> Dict[str, Any]:
         action = "create_feature"
 
     normalized_params = _normalize_parameters(raw_result.get("parameters"))
+    if action == "create_feature":
+        shape_hint = normalized_params.get("shape")
+        if shape_hint in {"chamfer", "bevel"} or \
+           normalized_params.get("chamfer_distance_mm") is not None or \
+           normalized_params.get("chamfer_target") is not None:
+            action = "chamfer"
+        elif shape_hint == "fillet" or normalized_params.get("fillet_target") is not None:
+            action = "fillet"
+
+    if action == "chamfer" and normalized_params.get("chamfer_distance_mm") is None:
+        if normalized_params.get("width_mm") is not None:
+            normalized_params["chamfer_distance_mm"] = normalized_params.get("width_mm")
 
     return {
         "action": action,
@@ -520,6 +565,9 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
     draft_angle_deg = params.get("draft_angle_deg")
     draft_outward = params.get("draft_outward")
     flip_direction = params.get("flip_direction")
+    fillet_target = params.get("fillet_target")
+    chamfer_distance_mm = params.get("chamfer_distance_mm")
+    chamfer_target = params.get("chamfer_target")
     count = params.get("count")
     pattern = params.get("pattern") or {}
 
@@ -608,19 +656,23 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
         plan.append(desc)
 
     elif action == "fillet":
-        desc = "Apply fillet"
         fillet_radius = radius_mm or diameter_mm
+        target_desc = "all edges" if fillet_target == "all_edges" else "recent feature edges"
         if fillet_radius:
-            desc += f" with {fillet_radius} mm radius"
-        plan.append(desc)
+            plan.append(f"Apply fillet radius {fillet_radius} mm to {target_desc}")
+        else:
+            plan.append(f"Fillet radius missing - specify radius in mm (target: {target_desc})")
 
     elif action == "chamfer":
-        desc = "Apply chamfer"
-        if width_mm:
-            desc += f" {width_mm} mm"
-        if angle_deg:
-            desc += f" at {angle_deg} deg"
-        plan.append(desc)
+        target_desc = "all edges" if chamfer_target == "all_edges" else "recent feature edges"
+        if chamfer_distance_mm:
+            desc = f"Apply chamfer {chamfer_distance_mm} mm"
+            if angle_deg:
+                desc += f" at {angle_deg} deg"
+            desc += f" to {target_desc}"
+            plan.append(desc)
+        else:
+            plan.append(f"Chamfer distance missing - specify distance in mm (target: {target_desc})")
 
     elif action == "create_feature":
         if shape == "cylinder":
@@ -795,7 +847,7 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
 
     # Action detection with keyword matching
     action = "create_feature"  # Safe fallback
-    if "chamfer" in instruction_lower:
+    if any(word in instruction_lower for word in ["chamfer", "bevel"]):
         action = "chamfer"
     elif "fillet" in instruction_lower or "round over" in instruction_lower or "rounding" in instruction_lower:
         action = "fillet"
@@ -822,7 +874,7 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         shape = "hole"
     elif "fillet" in instruction_lower:
         shape = "fillet"
-    elif "chamfer" in instruction_lower:
+    elif any(word in instruction_lower for word in ["chamfer", "bevel"]):
         shape = "chamfer"
 
     value_unit = r"(?P<value>[0-9]*\.?[0-9]+)\s*(?P<unit>mm|millimeter|millimeters|cm|centimeter|centimeters|m|meter|meters|in|inch|inches)?"
@@ -877,6 +929,38 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
                     return None
         return None
 
+    def extract_fillet_radius():
+        patterns = [
+            rf"(?:fillet|round\s*over|rounding)\s*(?:radius\s*)?{value_unit}",
+            rf"{value_unit}\s*(?:fillet|round\s*over|rounding)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, instruction_lower)
+            if match:
+                raw_value = match.group("value")
+                raw_unit = match.group("unit")
+                try:
+                    return _to_mm(float(raw_value), raw_unit)
+                except ValueError:
+                    return None
+        return None
+
+    def extract_chamfer_distance():
+        patterns = [
+            rf"(?:chamfer|bevel)\s*(?:distance|width|size)?\s*{value_unit}",
+            rf"{value_unit}\s*(?:chamfer|bevel)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, instruction_lower)
+            if match:
+                raw_value = match.group("value")
+                raw_unit = match.group("unit")
+                try:
+                    return _to_mm(float(raw_value), raw_unit)
+                except ValueError:
+                    return None
+        return None
+
     # Dimension extraction using regex patterns
     height_mm = extract_dim(["height", "tall", "high", "thickness", "thick"])
     depth_mm = extract_dim(["depth", "deep"])
@@ -887,6 +971,10 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     size_mm = extract_dim(["size", "side", "edge"])
     angle_deg = extract_angle()
     draft_angle_deg = extract_named_angle(["draft", "taper"])
+    fillet_radius_mm = extract_fillet_radius() if action == "fillet" or shape == "fillet" else None
+    if fillet_radius_mm is not None and radius_mm is None:
+        radius_mm = fillet_radius_mm
+    chamfer_distance_mm = extract_chamfer_distance() if action == "chamfer" or shape == "chamfer" else None
 
     draft_outward = None
     if draft_angle_deg is not None:
@@ -899,6 +987,24 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     if re.search(r"\b(flip|reverse|opposite)\b", instruction_lower):
         if "direction" in instruction_lower or "extrude" in instruction_lower or "cut" in instruction_lower:
             flip_direction = True
+
+    fillet_target = None
+    if action == "fillet" or shape == "fillet":
+        if re.search(r"\b(all|every)\s+(sharp\s+)?edges\b", instruction_lower) or \
+           re.search(r"\b(all|every)\s+corners\b", instruction_lower):
+            fillet_target = "all_edges"
+        elif re.search(r"\b(last|recent|previous)\s+(feature|operation|op|extrude|cut)\b", instruction_lower) or \
+             re.search(r"\b(last|recent|previous)\s+feature\b", instruction_lower):
+            fillet_target = "recent_feature"
+
+    chamfer_target = None
+    if action == "chamfer" or shape == "chamfer":
+        if re.search(r"\b(all|every)\s+(sharp\s+)?edges\b", instruction_lower) or \
+           re.search(r"\b(all|every)\s+corners\b", instruction_lower):
+            chamfer_target = "all_edges"
+        elif re.search(r"\b(last|recent|previous)\s+(feature|operation|op|extrude|cut)\b", instruction_lower) or \
+             re.search(r"\b(last|recent|previous)\s+feature\b", instruction_lower):
+            chamfer_target = "recent_feature"
 
     # Dimension triplets like 100x50x10 mm
     dim_token = r"([0-9]*\.?[0-9]+)\s*(mm|millimeter|millimeters|cm|centimeter|centimeters|m|meter|meters|in|inch|inches)?"
@@ -996,6 +1102,9 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         draft_angle_deg=draft_angle_deg,
         draft_outward=draft_outward,
         flip_direction=flip_direction,
+        fillet_target=fillet_target,
+        chamfer_distance_mm=chamfer_distance_mm,
+        chamfer_target=chamfer_target,
         count=count,
         pattern=pattern_info,
     )
