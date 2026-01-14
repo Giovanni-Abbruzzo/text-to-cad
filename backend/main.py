@@ -130,6 +130,7 @@ async def root() -> Dict[str, str]:
         "endpoints": {
             "process_instruction": "/process_instruction",
             "dry_run": "/dry_run",
+            "replay": "/replay",
             "generate_model": "/generate_model",
             "commands": "/commands",
             "config": "/config"
@@ -251,6 +252,26 @@ class InstructionResponse(BaseModel):
     plan: List[str]
     parsed_parameters: Dict
     operations: List[Dict] = Field(default_factory=list)  # New field for multi-operation support
+
+
+class ReplayOperation(BaseModel):
+    """
+    Operation payload for replay requests.
+    Matches the structure of ParsedParameters in InstructionResponse.
+    """
+    action: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ReplayRequest(BaseModel):
+    """
+    Request model for replaying previously logged operations.
+    """
+    schema_version: str = "1.0"
+    session_id: Optional[str] = None
+    instruction: Optional[str] = "replay"
+    source: Optional[str] = "replay"
+    operations: List[ReplayOperation]
 
 
 class CommandResponse(BaseModel):
@@ -1326,6 +1347,37 @@ async def dry_run_instruction(request: InstructionRequest) -> InstructionRespons
             status_code=500,
             detail=f"Internal error during dry run: {str(e)}"
         )
+
+
+@app.post("/replay")
+async def replay_operations(request: ReplayRequest) -> InstructionResponse:
+    """
+    Replay previously logged operations without re-parsing natural language.
+
+    Accepts a list of operations and returns a normalized InstructionResponse
+    with a generated plan. This endpoint does not create geometry or write to the DB.
+    """
+    if not request.operations:
+        raise HTTPException(status_code=422, detail="Replay requires at least one operation.")
+
+    all_operations: List[Dict[str, Any]] = []
+    all_plan_steps: List[str] = []
+
+    for op in request.operations:
+        normalized = normalize_parsed_result(op.dict())
+        all_operations.append(normalized)
+        all_plan_steps.extend(generate_plan_from_parsed(normalized))
+
+    first_operation = all_operations[0] if all_operations else {"action": "unknown", "parameters": {}}
+
+    return InstructionResponse(
+        schema_version=SCHEMA_VERSION,
+        instruction=request.instruction or "replay",
+        source=request.source or "replay",
+        plan=all_plan_steps,
+        parsed_parameters=first_operation,
+        operations=all_operations
+    )
 
 
 @app.get("/commands")
