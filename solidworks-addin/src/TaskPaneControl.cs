@@ -707,10 +707,25 @@ namespace TextToCad.SolidWorksAddin
                 double? patternRadiusMm = data.Pattern?.RadiusMm;
                 double? depthMm = data.DepthMm ?? data.HeightMm;
 
-                double? plateSizeMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
-                if (data.WidthMm.HasValue && data.LengthMm.HasValue)
+                double plateSizeMm;
+                if (data.WidthMm.HasValue || data.LengthMm.HasValue)
                 {
-                    plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+                    if (data.WidthMm.HasValue && data.LengthMm.HasValue)
+                        plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+                    else
+                        plateSizeMm = data.WidthMm ?? data.LengthMm ?? 80.0;
+                }
+                else
+                {
+                    plateSizeMm = 80.0;
+                    if (patternRadiusMm.HasValue)
+                    {
+                        double holeRadiusMm = diameterMm / 2.0;
+                        double minPlateMm = 2.0 * (patternRadiusMm.Value + holeRadiusMm);
+                        double paddedPlateMm = minPlateMm * 1.1;
+                        if (paddedPlateMm > plateSizeMm)
+                            plateSizeMm = paddedPlateMm;
+                    }
                 }
 
                 AppendLog("Creating circular hole pattern:", Color.Blue);

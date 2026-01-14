@@ -321,9 +321,26 @@ namespace TextToCad.SolidWorksAddin.Controllers
                 double? patternRadiusMm = data.Pattern?.RadiusMm;
                 double? depthMm = data.DepthMm ?? data.HeightMm;
 
-                double? plateSizeMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
-                if (data.WidthMm.HasValue && data.LengthMm.HasValue)
-                    plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+                double plateSizeMm;
+                if (data.WidthMm.HasValue || data.LengthMm.HasValue)
+                {
+                    if (data.WidthMm.HasValue && data.LengthMm.HasValue)
+                        plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+                    else
+                        plateSizeMm = data.WidthMm ?? data.LengthMm ?? 80.0;
+                }
+                else
+                {
+                    plateSizeMm = 80.0;
+                    if (patternRadiusMm.HasValue)
+                    {
+                        double holeRadiusMm = diameterMm / 2.0;
+                        double minPlateMm = 2.0 * (patternRadiusMm.Value + holeRadiusMm);
+                        double paddedPlateMm = minPlateMm * 1.1;
+                        if (paddedPlateMm > plateSizeMm)
+                            plateSizeMm = paddedPlateMm;
+                    }
+                }
 
                 _log.Info($"Creating {count} holes with diameter={diameterMm} mm");
 
@@ -468,7 +485,7 @@ namespace TextToCad.SolidWorksAddin.Controllers
         /// </summary>
         private string CreateErrorResponse(string message)
         {
-            return $"{{"error": "{message}"}}";
+            return $"{{\"error\": \"{message}\"}}";
         }
     }
 }

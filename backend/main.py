@@ -442,6 +442,25 @@ def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
     }
 
 
+def _has_any_parameter(params: Any) -> bool:
+    if not isinstance(params, dict):
+        return False
+
+    for key, value in params.items():
+        if key == "pattern":
+            if isinstance(value, dict):
+                for nested_value in value.values():
+                    if nested_value is not None:
+                        return True
+            elif value is not None:
+                return True
+        else:
+            if value is not None:
+                return True
+
+    return False
+
+
 def normalize_parsed_result(raw_result: Any) -> Dict[str, Any]:
     if not isinstance(raw_result, dict):
         raise ValueError("Parsed result must be a dictionary")
@@ -711,7 +730,12 @@ def parse_instruction_internal(text: str, use_ai: bool) -> dict:
             parsed_result = parse_instruction_with_ai(text)
             parsed_result = normalize_parsed_result(parsed_result)
             source = "ai"
-            logger.info(f"AI parsing successful: {parsed_result}")
+            if not _has_any_parameter(parsed_result.get("parameters")):
+                logger.warning("AI parsing returned empty parameters; falling back to rule-based parsing")
+                parsed_result = None
+                source = "rule"
+            else:
+                logger.info(f"AI parsing successful: {parsed_result}")
         except LLMParseError as e:
             logger.warning(f"AI parsing failed, falling back to rules: {e}")
             parsed_result = None  # Will trigger fallback

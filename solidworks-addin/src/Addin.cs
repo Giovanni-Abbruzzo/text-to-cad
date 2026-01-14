@@ -84,13 +84,8 @@ namespace TextToCad.SolidWorksAddin
                 Logger.Error("Failed to connect to SolidWorks", ex);
 
                 // Show error to user
-                string errorMsg = $"Text-to-CAD Add-In failed to load:
-
-{ex.Message}
-
-" +
-                                 $"Check log file at:
-{Logger.GetLogFilePath()}";
+                string errorMsg = $"Text-to-CAD Add-In failed to load:\n\n{ex.Message}\n\n" +
+                                 $"Check log file at:\n{Logger.GetLogFilePath()}";
                 System.Windows.Forms.MessageBox.Show(
                     errorMsg,
                     "Text-to-CAD Load Error",
@@ -159,7 +154,7 @@ namespace TextToCad.SolidWorksAddin
                     Logger.Warning($"Backend API is not reachable at {ApiClient.GetBaseUrl()}");
                     Logger.Warning("Please ensure the FastAPI server is running:");
                     Logger.Warning("  cd backend");
-                    Logger.Warning("  .venv\Scripts\Activate.ps1");
+                    Logger.Warning("  .venv\\Scripts\\Activate.ps1");
                     Logger.Warning("  uvicorn main:app --reload");
                 }
             }
@@ -186,7 +181,7 @@ namespace TextToCad.SolidWorksAddin
                 Microsoft.Win32.RegistryKey hklm = Microsoft.Win32.Registry.LocalMachine;
                 Microsoft.Win32.RegistryKey hkcu = Microsoft.Win32.Registry.CurrentUser;
 
-                string keyname = "SOFTWARE\SolidWorks\Addins\{" + t.GUID.ToString() + "}";
+                string keyname = "SOFTWARE\\SolidWorks\\Addins\\{" + t.GUID.ToString() + "}";
 
                 // Create keys in both HKLM and HKCU
                 Microsoft.Win32.RegistryKey addinkey = hklm.CreateSubKey(keyname);
@@ -218,7 +213,7 @@ namespace TextToCad.SolidWorksAddin
                 Microsoft.Win32.RegistryKey hklm = Microsoft.Win32.Registry.LocalMachine;
                 Microsoft.Win32.RegistryKey hkcu = Microsoft.Win32.Registry.CurrentUser;
 
-                string keyname = "SOFTWARE\SolidWorks\Addins\{" + t.GUID.ToString() + "}";
+                string keyname = "SOFTWARE\\SolidWorks\\Addins\\{" + t.GUID.ToString() + "}";
 
                 hklm.DeleteSubKey(keyname, false);
                 hkcu.DeleteSubKey(keyname, false);

@@ -233,14 +233,22 @@ namespace TextToCad.SolidWorksAddin.Builders
                     // Convert radius to meters
                     double radiusM = Units.MmToM(radiusMm);
 
-                    // Use InsertFeatureFillet for simple constant-radius fillets
-                    // Parameters: Type, Radius, FacePropagate, AllFilletEdges, InstanceCount
-                    IFeature filletFeature = (IFeature)featMgr.InsertFeatureFillet(
-                        (int)swFeatureFilletOptions_e.swFeatureFilletConstantRadius,  // Type: constant radius
-                        radiusM,                                                       // Radius in meters
-                        0,                                                             // FacePropagate: 0 = no propagation
-                        0,                                                             // AllFilletEdges: 0 = use selected edges
-                        0                                                              // InstanceCount: 0 = default
+                    // Create fillet feature using FeatureFillet3 (14 parameters)
+                    IFeature filletFeature = (IFeature)featMgr.FeatureFillet3(
+                        0,              // Type: 0 = constant radius
+                        radiusM,        // Radius1
+                        0,              // Radius2 (not used for constant radius)
+                        0,              // SetbackDistance
+                        0,              // ReverseDirection (0 = false)
+                        0,              // ReverseDirection2 (0 = false)
+                        0,              // KeepEdge (0 = false)
+                        0,              // KeepFace (0 = false)
+                        0,              // TrimAndAttach (0 = false)
+                        0,              // RollingBallRadius (0 = false)
+                        0,              // Asymmetric (0 = false)
+                        0,              // RoundCorners (0 = false)
+                        0,              // OverflowType (0 = linear)
+                        0               // OverflowParameter
                     );
 
                     if (filletFeature == null)

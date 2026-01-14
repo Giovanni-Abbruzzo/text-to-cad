@@ -131,8 +131,7 @@ namespace TextToCad.SolidWorksAddin
 
             // Serialize request
             string jsonPayload = JsonConvert.SerializeObject(payload);
-            Logger.Debug($"POST {url}
-Payload: {jsonPayload}");
+            Logger.Debug($"POST {url}\nPayload: {jsonPayload}");
 
             var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
 
@@ -141,8 +140,7 @@ Payload: {jsonPayload}");
 
             // Read response
             string responseBody = await response.Content.ReadAsStringAsync();
-            Logger.Debug($"Response status: {response.StatusCode}
-Body: {responseBody}");
+            Logger.Debug($"Response status: {response.StatusCode}\nBody: {responseBody}");
 
             // Check for errors
             if (!response.IsSuccessStatusCode)
