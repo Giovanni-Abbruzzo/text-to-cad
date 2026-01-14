@@ -9,116 +9,106 @@ using TextToCad.SolidWorksAddin.Utils;
 namespace TextToCad.SolidWorksAddin.Builders
 {
     /// <summary>
-    /// Builder for creating fillet features on model edges.
-    /// Supports filleting recent feature edges or all sharp edges in the model.
+    /// Builder for creating chamfer features on model edges.
+    /// Supports chamfering recent feature edges or all sharp edges in the model.
     /// </summary>
-    public class FilletBuilder
+    public class ChamferBuilder
     {
         private readonly ISldWorks _sw;
         private readonly ILogger _log;
 
         /// <summary>
-        /// Create a new fillet builder.
+        /// Create a new chamfer builder.
         /// </summary>
         /// <param name="sw">SolidWorks application instance</param>
         /// <param name="log">Logger for operation tracking</param>
         /// <exception cref="ArgumentNullException">If sw or log is null</exception>
-        public FilletBuilder(ISldWorks sw, ILogger log)
+        public ChamferBuilder(ISldWorks sw, ILogger log)
         {
             _sw = sw ?? throw new ArgumentNullException(nameof(sw));
             _log = log ?? throw new ArgumentNullException(nameof(log));
         }
 
         /// <summary>
-        /// Apply fillet to the edges of the most recently created feature.
+        /// Apply chamfer to the edges of the most recently created feature.
         /// </summary>
         /// <param name="model">SolidWorks model document (must be a Part)</param>
-        /// <param name="radiusMm">Fillet radius in millimeters (must be > 0)</param>
-        /// <returns>True if fillet was successfully applied; false otherwise</returns>
-        public bool ApplyFilletToRecentEdges(IModelDoc2 model, double radiusMm)
+        /// <param name="distanceMm">Chamfer distance in millimeters (must be > 0)</param>
+        /// <param name="angleDeg">Optional chamfer angle in degrees (angle-distance type)</param>
+        /// <returns>True if chamfer was successfully applied; false otherwise</returns>
+        public bool ApplyChamferToRecentEdges(IModelDoc2 model, double distanceMm, double? angleDeg = null)
         {
             if (model == null)
             {
-                _log.Error("ApplyFilletToRecentEdges: model is null");
+                _log.Error("ApplyChamferToRecentEdges: model is null");
                 return false;
             }
 
-            // Validate radius
-            if (radiusMm <= 0)
+            if (distanceMm <= 0)
             {
-                _log.Error($"Invalid fillet radius: {radiusMm} mm (must be > 0)");
+                _log.Error($"Invalid chamfer distance: {distanceMm} mm (must be > 0)");
                 return false;
             }
 
-            // Check document type
             if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
             {
-                _log.Error("Fillet only works with Part documents");
+                _log.Error("Chamfer only works with Part documents");
                 return false;
             }
 
-            _log.Info($"Applying {radiusMm} mm fillet to recent feature edges...");
+            _log.Info($"Applying {distanceMm} mm chamfer to recent feature edges...");
 
-            // Get the most recent feature
             IFeature lastFeature = GetLastFeature(model);
             if (lastFeature == null)
             {
-                _log.Error("No features found in model - cannot apply fillet");
+                _log.Error("No features found in model - cannot apply chamfer");
                 return false;
             }
 
             _log.Info($"Target feature: {lastFeature.Name}");
 
-            // Get edges from the feature
             IEdge[] edges = FaceMapping.GetFeatureEdges(lastFeature);
             if (edges == null || edges.Length == 0)
             {
-                _log.Warn($"Feature '{lastFeature.Name}' has no edges - cannot apply fillet");
+                _log.Warn($"Feature '{lastFeature.Name}' has no edges - cannot apply chamfer");
                 return false;
             }
 
             _log.Info($"Found {edges.Length} edges on feature");
 
-            // Apply fillet to these edges
-            return ApplyFilletToEdges(model, edges, radiusMm);
+            return ApplyChamferToEdges(model, edges, distanceMm, angleDeg);
         }
 
         /// <summary>
-        /// Apply fillet to all sharp edges in the model.
+        /// Apply chamfer to all sharp edges in the model.
         /// </summary>
         /// <param name="model">SolidWorks model document (must be a Part)</param>
-        /// <param name="radiusMm">Fillet radius in millimeters (must be > 0)</param>
-        /// <param name="angleThresholdDeg">Optional: Only fillet edges with angle > threshold (default: 0, fillet all edges)</param>
-        /// <returns>True if fillet was successfully applied; false otherwise</returns>
-        /// <remarks>
-        /// This method can be slow on complex models with many edges.
-        /// Consider using ApplyFilletToRecentEdges for targeted filleting.
-        /// </remarks>
-        public bool ApplyFilletToAllSharpEdges(IModelDoc2 model, double radiusMm, double angleThresholdDeg = 0.0)
+        /// <param name="distanceMm">Chamfer distance in millimeters (must be > 0)</param>
+        /// <param name="angleDeg">Optional chamfer angle in degrees (angle-distance type)</param>
+        /// <param name="angleThresholdDeg">Optional: Only chamfer edges with angle > threshold (default: 0, chamfer all edges)</param>
+        /// <returns>True if chamfer was successfully applied; false otherwise</returns>
+        public bool ApplyChamferToAllSharpEdges(IModelDoc2 model, double distanceMm, double? angleDeg = null, double angleThresholdDeg = 0.0)
         {
             if (model == null)
             {
-                _log.Error("ApplyFilletToAllSharpEdges: model is null");
+                _log.Error("ApplyChamferToAllSharpEdges: model is null");
                 return false;
             }
 
-            // Validate radius
-            if (radiusMm <= 0)
+            if (distanceMm <= 0)
             {
-                _log.Error($"Invalid fillet radius: {radiusMm} mm (must be > 0)");
+                _log.Error($"Invalid chamfer distance: {distanceMm} mm (must be > 0)");
                 return false;
             }
 
-            // Check document type
             if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
             {
-                _log.Error("Fillet only works with Part documents");
+                _log.Error("Chamfer only works with Part documents");
                 return false;
             }
 
-            _log.Info($"Applying {radiusMm} mm fillet to all sharp edges (angle threshold: {angleThresholdDeg} deg)...");
+            _log.Info($"Applying {distanceMm} mm chamfer to all sharp edges (angle threshold: {angleThresholdDeg} deg)...");
 
-            // Get all edges from all bodies
             IPartDoc part = (IPartDoc)model;
             object[] bodies = (object[])part.GetBodies2((int)swBodyType_e.swSolidBody, true);
 
@@ -149,7 +139,6 @@ namespace TextToCad.SolidWorksAddin.Builders
 
             _log.Info($"Found {allEdges.Count} total edges");
 
-            // Filter by angle if threshold specified
             IEdge[] targetEdges;
             if (angleThresholdDeg > 0)
             {
@@ -163,39 +152,37 @@ namespace TextToCad.SolidWorksAddin.Builders
 
             if (targetEdges.Length == 0)
             {
-                _log.Warn("No edges to fillet after filtering");
+                _log.Warn("No edges to chamfer after filtering");
                 return false;
             }
 
-            // Apply fillet to filtered edges
-            return ApplyFilletToEdges(model, targetEdges, radiusMm);
+            return ApplyChamferToEdges(model, targetEdges, distanceMm, angleDeg);
         }
 
         /// <summary>
-        /// Core method to apply fillet to a set of edges.
+        /// Core method to apply chamfer to a set of edges.
         /// </summary>
         /// <param name="model">SolidWorks model document</param>
-        /// <param name="edges">Edges to fillet</param>
-        /// <param name="radiusMm">Fillet radius in millimeters</param>
+        /// <param name="edges">Edges to chamfer</param>
+        /// <param name="distanceMm">Chamfer distance in millimeters</param>
+        /// <param name="angleDeg">Optional chamfer angle in degrees</param>
         /// <returns>True if successful; false otherwise</returns>
-        private bool ApplyFilletToEdges(IModelDoc2 model, IEdge[] edges, double radiusMm)
+        private bool ApplyChamferToEdges(IModelDoc2 model, IEdge[] edges, double distanceMm, double? angleDeg)
         {
             if (edges == null || edges.Length == 0)
             {
-                _log.Warn("No edges provided for filleting");
+                _log.Warn("No edges provided for chamfer");
                 return false;
             }
 
-            using (var scope = new UndoScope(model, "Apply Fillet", _log))
+            using (var scope = new UndoScope(model, "Apply Chamfer", _log))
             {
                 try
                 {
-                    _log.Info($"Selecting {edges.Length} edges for fillet...");
+                    _log.Info($"Selecting {edges.Length} edges for chamfer...");
 
-                    // Clear any existing selections
                     model.ClearSelection2(true);
 
-                    // Select all target edges
                     ISelectionMgr selMgr = (ISelectionMgr)model.SelectionManager;
                     int selectedCount = 0;
 
@@ -204,9 +191,9 @@ namespace TextToCad.SolidWorksAddin.Builders
                         try
                         {
                             ISelectData selData = selMgr.CreateSelectData();
-                            selData.Mark = 0; // Default selection mark for fillet edges
+                            selData.Mark = 1;
 
-                            if (((IEntity)edge).Select4(true, (SelectData)selData)) // Append to selection
+                            if (((IEntity)edge).Select4(true, (SelectData)selData))
                             {
                                 selectedCount++;
                             }
@@ -225,48 +212,43 @@ namespace TextToCad.SolidWorksAddin.Builders
 
                     _log.Info($"Selected {selectedCount}/{edges.Length} edges");
 
-                    // Create fillet feature using InsertFeatureFillet
                     IFeatureManager featMgr = model.FeatureManager;
 
-                    _log.Info($"Creating constant-radius fillet (radius: {radiusMm} mm)...");
+                    double distanceM = Units.MmToM(distanceMm);
+                    bool useAngle = angleDeg.HasValue && angleDeg.Value > 0;
+                    double angleRad = useAngle ? (angleDeg.Value * Math.PI / 180.0) : 0.0;
+                    double otherDistanceM = useAngle ? 0.0 : distanceM;
+                    int chamferType = useAngle
+                        ? (int)swChamferType_e.swChamferAngleDistance
+                        : (int)swChamferType_e.swChamferDistanceDistance;
 
-                    // Convert radius to meters
-                    double radiusM = Units.MmToM(radiusMm);
+                    _log.Info(useAngle
+                        ? $"Creating chamfer (distance {distanceMm} mm, angle {angleDeg.Value} deg)..."
+                        : $"Creating chamfer (distance {distanceMm} mm)...");
 
-                    // Create fillet feature using FeatureFillet3 (14 parameters)
-                    // NOTE: 195 matches the SolidWorks macro default for constant-radius fillets.
-                    int filletType = 195;
-                    IFeature filletFeature = (IFeature)featMgr.FeatureFillet3(
-                        filletType,     // Type: constant radius
-                        radiusM,        // Radius1
-                        0,              // Radius2 (not used for constant radius)
-                        0,              // SetbackDistance
-                        0,              // ReverseDirection (0 = false)
-                        0,              // ReverseDirection2 (0 = false)
-                        0,              // KeepEdge (0 = false)
-                        0,              // KeepFace (0 = false)
-                        0,              // TrimAndAttach (0 = false)
-                        0,              // RollingBallRadius (0 = false)
-                        0,              // Asymmetric (0 = false)
-                        0,              // RoundCorners (0 = false)
-                        0,              // OverflowType (0 = linear)
-                        0               // OverflowParameter
+                    IFeature chamferFeature = (IFeature)featMgr.InsertFeatureChamfer(
+                        0,          // Options
+                        chamferType,
+                        distanceM,  // Width
+                        angleRad,   // Angle (radians)
+                        otherDistanceM, // OtherDist
+                        0.0,        // VertexChamDist1
+                        0.0,        // VertexChamDist2
+                        0.0         // VertexChamDist3
                     );
 
-                    if (filletFeature == null)
+                    if (chamferFeature == null)
                     {
-                        _log.Error("FeatureFillet3 returned null - fillet creation failed");
+                        _log.Error("InsertFeatureChamfer returned null - chamfer creation failed");
                         _log.Error("Possible causes:");
-                        _log.Error($"  - Radius ({radiusMm} mm) too large for edge geometry");
                         _log.Error("  - Invalid edge selection or edge type");
-                        _log.Error("  - Fillet would create invalid geometry");
-                        _log.Error($"  - Try a smaller radius (< {radiusMm / 2} mm)");
+                        _log.Error("  - Chamfer would create invalid geometry");
+                        _log.Error("  - Distance too large for edge geometry");
                         return false;
                     }
 
-                    _log.Info($"Fillet feature '{filletFeature.Name}' created successfully");
+                    _log.Info($"Chamfer feature '{chamferFeature.Name}' created successfully");
 
-                    // Rebuild to apply the fillet
                     model.ForceRebuild3(false);
 
                     scope.Commit();
@@ -274,7 +256,7 @@ namespace TextToCad.SolidWorksAddin.Builders
                 }
                 catch (Exception ex)
                 {
-                    _log.Error($"Fillet creation failed: {ex.Message}");
+                    _log.Error($"Chamfer creation failed: {ex.Message}");
                     _log.Error($"Stack trace: {ex.StackTrace}");
                     return false;
                 }
@@ -284,8 +266,6 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// <summary>
         /// Get the most recently created feature in the model.
         /// </summary>
-        /// <param name="model">SolidWorks model document</param>
-        /// <returns>Last feature, or null if no features exist</returns>
         private IFeature GetLastFeature(IModelDoc2 model)
         {
             try
@@ -296,10 +276,8 @@ namespace TextToCad.SolidWorksAddin.Builders
 
                 IFeature lastFeature = null;
 
-                // Iterate to find the last feature
                 while (feature != null)
                 {
-                    // Skip origin features and reference geometry
                     string typeName = feature.GetTypeName2();
                     if (typeName != "ProfileFeature" &&
                         typeName != "RefPlane" &&
@@ -324,21 +302,16 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// <summary>
         /// Determine if an edge is "sharp" (angle exceeds threshold).
         /// </summary>
-        /// <param name="edge">Edge to check</param>
-        /// <param name="angleThresholdDeg">Angle threshold in degrees</param>
-        /// <returns>True if edge angle exceeds threshold</returns>
         private bool IsSharpEdge(IEdge edge, double angleThresholdDeg)
         {
             try
             {
-                // Get adjacent faces to measure angle
                 object[] facesObj = (object[])edge.GetTwoAdjacentFaces2();
                 if (facesObj == null || facesObj.Length < 2)
-                    return false; // Boundary edge, no angle to measure
+                    return false;
 
-                // Future implementation -- fillet addition here (compute dihedral angle accurately).
+                // Future implementation -- chamfer addition here (compute dihedral angle accurately).
 
-                // For now, consider all edges with two faces as potentially sharp.
                 return true;
             }
             catch
