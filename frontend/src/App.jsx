@@ -176,7 +176,7 @@ function App() {
           fontSize: '1.5rem',
           fontWeight: '600'
         }}>
-          📝 Instruction
+          Instruction
         </h2>
         
         <div style={{ marginBottom: '16px' }}>
@@ -223,7 +223,7 @@ function App() {
                 cursor: 'pointer'
               }}
             />
-            🤖 Use AI Enhancement
+            Use AI Enhancement
             <span style={{
               marginLeft: '8px',
               fontSize: '0.8rem',
@@ -266,9 +266,9 @@ function App() {
               }
             }}
           >
-            {loading ? '⏳ Processing...' : 
-             (currentJob && currentJob.status === 'running') ? '🔄 Job Running...' : 
-             '🚀 Send'}
+            {loading ? 'Processing...' : 
+             (currentJob && currentJob.status === 'running') ? 'Job Running...' : 
+             'Send'}
           </button>
         </div>
       </div>
@@ -295,7 +295,7 @@ function App() {
               color: '#212529',
               fontWeight: '600'
             }}>
-              ⚙️ Job Status
+              Job Status
             </h2>
             
             {/* Status Badge */}
@@ -320,9 +320,9 @@ function App() {
                 currentJob.status === 'running' ? '#bee5eb' : '#d6d8db'
               }`
             }}>
-              {currentJob.status === 'succeeded' ? '✅ Succeeded' :
-               currentJob.status === 'failed' ? '❌ Failed' :
-               currentJob.status === 'running' ? '🔄 Running' : '⏳ Queued'}
+              {currentJob.status === 'succeeded' ? 'Succeeded' :
+               currentJob.status === 'failed' ? 'Failed' :
+               currentJob.status === 'running' ? 'Running' : 'Queued'}
             </span>
           </div>
           
@@ -392,7 +392,7 @@ function App() {
             )}
             {jobPolling && (
               <div style={{ color: '#007bff', fontWeight: '500' }}>
-                🔄 Polling for updates...
+                Polling for updates...
               </div>
             )}
             
@@ -411,7 +411,7 @@ function App() {
                   marginBottom: '4px',
                   fontSize: '0.9rem'
                 }}>
-                  ❌ Job Failed
+                  Job Failed
                 </div>
                 <div style={{
                   fontSize: '0.85rem',
@@ -442,7 +442,7 @@ function App() {
             fontSize: '1.5rem',
             fontWeight: '600'
           }}>
-            ✅ Result
+            Result
           </h2>
           
           {/* Source Display */}
@@ -468,10 +468,47 @@ function App() {
                 fontWeight: '600',
                 border: `1px solid ${response.source === 'ai' ? '#c3e6cb' : '#ffeaa7'}`
               }}>
-                {response.source === 'ai' ? '🤖 AI Enhanced' : '📋 Rule-based'}
+                {response.source === 'ai' ? 'AI Enhanced' : 'Rule-based'}
               </span>
             </div>
+            <div style={{
+              marginTop: '8px',
+              fontSize: '0.9rem',
+              color: '#6c757d'
+            }}>
+              Schema Version: {response.schema_version || 'N/A'}
+            </div>
           </div>
+
+          {/* Plan Section */}
+          {response.plan && response.plan.length > 0 && (
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{
+                fontSize: '1.1rem',
+                marginBottom: '12px',
+                color: '#495057',
+                fontWeight: '600'
+              }}>
+                Plan
+              </h3>
+              <ol style={{
+                margin: 0,
+                paddingLeft: '20px',
+                color: '#495057',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #e9ecef',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                {response.plan.map((step, index) => (
+                  <li key={`${index}-${step}`} style={{ marginBottom: '6px' }}>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
 
           {/* Parsed Parameters Table */}
           <div style={{ marginBottom: '20px' }}>
@@ -481,7 +518,7 @@ function App() {
               color: '#495057',
               fontWeight: '600'
             }}>
-              📊 Parsed Parameters
+              Parsed Parameters
             </h3>
             <div style={{
               backgroundColor: '#f8f9fa',
@@ -545,6 +582,36 @@ function App() {
             </div>
           </div>
 
+          {/* Operations Section */}
+          {Array.isArray(response.operations) && response.operations.length > 1 && (
+            <div style={{ marginBottom: '20px' }}>
+              <h3 style={{
+                fontSize: '1.1rem',
+                marginBottom: '12px',
+                color: '#495057',
+                fontWeight: '600'
+              }}>
+                Operations
+              </h3>
+              <ul style={{
+                margin: 0,
+                paddingLeft: '20px',
+                color: '#495057',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #e9ecef',
+                borderRadius: '10px',
+                padding: '12px 16px',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+              }}>
+                {response.operations.map((op, index) => (
+                  <li key={`${index}-${op?.action || 'op'}`} style={{ marginBottom: '6px' }}>
+                    <strong>{op?.action || 'unknown'}</strong> {op?.parameters?.shape ? `- ${op.parameters.shape}` : ''}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Raw JSON (collapsible) */}
           <details style={{ marginTop: '20px' }}>
             <summary style={{
@@ -558,7 +625,7 @@ function App() {
               borderRadius: '6px',
               border: '1px solid #e9ecef'
             }}>
-              🔍 View Raw JSON Response
+              View Raw JSON Response
             </summary>
             <pre
               style={{
@@ -596,7 +663,7 @@ function App() {
           fontSize: '1.5rem',
           fontWeight: '600'
         }}>
-          📚 History
+          History
         </h2>
         {history.length === 0 ? (
           <div style={{
@@ -609,7 +676,7 @@ function App() {
               marginBottom: '16px',
               opacity: 0.3
             }}>
-              📝
+              No history yet
             </div>
             <p style={{ 
               fontSize: '1.1rem',

@@ -94,6 +94,10 @@
     <Compile Include="src\Builders\CircularHolesBuilder.cs" />
     <!-- Sprint SW-5: Cylinder Builders -->
     <Compile Include="src\Builders\ExtrudedCylinderBuilder.cs" />
+    <!-- Sprint SW-6: Face Mapping, Fillet, and Guardrails -->
+    <Compile Include="src\Utils\FaceMapping.cs" />
+    <Compile Include="src\Builders\FilletBuilder.cs" />
+    <Compile Include="src\Controllers\ExecuteController.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="app.config" />

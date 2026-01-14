@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -69,14 +69,14 @@ namespace TextToCad.SolidWorksAddin
             // Validate instruction
             if (!ErrorHandler.ValidateInstruction(txtInstruction.Text, out string errorMessage))
             {
-                AppendLog("❌ Validation Error", Color.Red);
+                AppendLog("Validation error", Color.Red);
                 AppendLog(errorMessage, Color.Red);
                 return;
             }
 
             if (isProcessing)
             {
-                AppendLog("⏳ Already processing a request...", Color.Orange);
+                AppendLog("Already processing a request...", Color.Orange);
                 return;
             }
 
@@ -85,7 +85,7 @@ namespace TextToCad.SolidWorksAddin
                 isProcessing = true;
                 SetUIEnabled(false);
 
-                AppendLog("🔍 Previewing instruction...", Color.Blue);
+                AppendLog("Previewing instruction...", Color.Blue);
                 Logger.Info($"Preview requested: '{txtInstruction.Text}'");
 
                 // Create request
@@ -97,12 +97,12 @@ namespace TextToCad.SolidWorksAddin
                 // Display results
                 DisplayResponse(response, isPreview: true);
 
-                AppendLog("✓ Preview complete", Color.Green);
+                AppendLog("Preview complete", Color.Green);
             }
             catch (Exception ex)
             {
                 string errorMsg = ErrorHandler.HandleException(ex, "Preview");
-                AppendLog("❌ Preview Failed", Color.Red);
+                AppendLog("Preview failed", Color.Red);
                 AppendLog(errorMsg, Color.Red);
             }
             finally
@@ -113,31 +113,31 @@ namespace TextToCad.SolidWorksAddin
         }
 
         /// <summary>
-        /// Handle Execute button click - calls /process_instruction endpoint
+        /// Handle Execute button click - uses /process_instruction and then executes CAD
         /// </summary>
         private async void btnExecute_Click(object sender, EventArgs e)
         {
             // Validate instruction
             if (!ErrorHandler.ValidateInstruction(txtInstruction.Text, out string errorMessage))
             {
-                AppendLog("❌ Validation Error", Color.Red);
+                AppendLog("Validation error", Color.Red);
                 AppendLog(errorMessage, Color.Red);
                 return;
             }
 
             if (isProcessing)
             {
-                AppendLog("⏳ Already processing a request...", Color.Orange);
+                AppendLog("Already processing a request...", Color.Orange);
                 return;
             }
 
             // Confirm execution
             if (!ErrorHandler.Confirm(
                 $"Execute this instruction?\n\n\"{txtInstruction.Text}\"\n\n" +
-                "This will save the command to the database.",
+                "This will save the command to the database and create CAD geometry.",
                 "Confirm Execution"))
             {
-                AppendLog("❌ Execution cancelled by user", Color.Orange);
+                AppendLog("Execution cancelled by user", Color.Orange);
                 return;
             }
 
@@ -146,39 +146,39 @@ namespace TextToCad.SolidWorksAddin
                 isProcessing = true;
                 SetUIEnabled(false);
 
-                AppendLog("⚙️ Executing instruction...", Color.Blue);
+                AppendLog("Executing instruction...", Color.Blue);
                 Logger.Info($"Execute requested: '{txtInstruction.Text}'");
 
                 // Create request
                 var request = new InstructionRequest(txtInstruction.Text, chkUseAI.Checked);
 
-                // Call API
+                // Call API to get parsed response
                 var response = await ApiClient.ProcessInstructionAsync(request);
 
-                // Display results
+                // Display response (shows plan and parameters)
                 DisplayResponse(response, isPreview: false);
 
-                AppendLog("✓ Execution complete (saved to database)", Color.Green);
+                AppendLog("Execution complete (saved to database)", Color.Green);
 
-                // === NEW: Actually execute the CAD operation ===
+                // Now execute the CAD operations
                 AppendLog("", Color.Black);
-                AppendLog("🔧 Creating CAD geometry...", Color.Blue);
-                
+                AppendLog("Creating CAD geometry...", Color.Blue);
+
                 bool geometryCreated = ExecuteCADOperation(response);
-                
+
                 if (geometryCreated)
                 {
-                    AppendLog("✓ CAD geometry created successfully!", Color.Green);
+                    AppendLog("CAD geometry created successfully", Color.Green);
                 }
                 else
                 {
-                    AppendLog("⚠️ Geometry creation skipped or failed (see details above)", Color.Orange);
+                    AppendLog("Geometry creation skipped or failed (see details above)", Color.Orange);
                 }
             }
             catch (Exception ex)
             {
                 string errorMsg = ErrorHandler.HandleException(ex, "Execute");
-                AppendLog("❌ Execution Failed", Color.Red);
+                AppendLog("Execution failed", Color.Red);
                 AppendLog(errorMsg, Color.Red);
             }
             finally
@@ -209,12 +209,12 @@ namespace TextToCad.SolidWorksAddin
             {
                 string newUrl = txtApiBase.Text.Trim();
                 ApiClient.SetBaseUrl(newUrl);
-                AppendLog($"✓ API URL updated to: {newUrl}", Color.Green);
+                AppendLog($"API URL updated to: {newUrl}", Color.Green);
                 UpdateConnectionStatus();
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Invalid URL: {ex.Message}", Color.Red);
+                AppendLog($"Invalid URL: {ex.Message}", Color.Red);
             }
         }
 
@@ -226,24 +226,24 @@ namespace TextToCad.SolidWorksAddin
             try
             {
                 SetUIEnabled(false);
-                AppendLog("🔌 Testing connection...", Color.Blue);
+                AppendLog("Testing connection...", Color.Blue);
 
                 bool connected = await ApiClient.TestConnectionAsync();
 
                 if (connected)
                 {
-                    AppendLog("✓ Connection successful!", Color.Green);
+                    AppendLog("Connection successful", Color.Green);
                     UpdateConnectionStatus(true);
                 }
                 else
                 {
-                    AppendLog("❌ Connection failed - server not responding", Color.Red);
+                    AppendLog("Connection failed - server not responding", Color.Red);
                     UpdateConnectionStatus(false);
                 }
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Connection error: {ex.Message}", Color.Red);
+                AppendLog($"Connection error: {ex.Message}", Color.Red);
                 UpdateConnectionStatus(false);
             }
             finally
@@ -265,21 +265,21 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         private void btnTestUnits_Click(object sender, EventArgs e)
         {
-            AppendLog("\n═══ Testing Units Conversion ═══", Color.DarkBlue);
-            
+            AppendLog("\n=== Testing Units Conversion ===", Color.DarkBlue);
+
             double mm = 100.0;
             double m = Utils.Units.MmToM(mm);
             double backToMm = Utils.Units.MToMm(m);
-            
-            AppendLog($"100mm → {m}m → {backToMm}mm", Color.Black);
-            
+
+            AppendLog($"100mm -> {m}m -> {backToMm}mm", Color.Black);
+
             if (Math.Abs(backToMm - mm) < 0.0001)
             {
-                AppendLog("✓ Units conversion test PASSED", Color.Green);
+                AppendLog("Units conversion test PASSED", Color.Green);
             }
             else
             {
-                AppendLog("✗ Units conversion test FAILED", Color.Red);
+                AppendLog("Units conversion test FAILED", Color.Red);
             }
         }
 
@@ -288,39 +288,39 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         private void btnTestPlanes_Click(object sender, EventArgs e)
         {
-            AppendLog("\n═══ Testing Plane Selection ═══", Color.DarkBlue);
-            
+            AppendLog("\n=== Testing Plane Selection ===", Color.DarkBlue);
+
             if (_addin == null)
             {
-                AppendLog("✗ Add-in reference not set", Color.Red);
+                AppendLog("Add-in reference not set", Color.Red);
                 return;
             }
-            
+
             var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
             if (model == null)
             {
-                AppendLog("✗ No active document. Please open a part.", Color.Orange);
+                AppendLog("No active document. Please open a part.", Color.Orange);
                 return;
             }
 
             var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
-            
+
             string[] planeNames = { "Top Plane", "Front Plane", "Right Plane" };
             foreach (var planeName in planeNames)
             {
                 bool found = Utils.Selection.SelectPlaneByName(_addin.SwApp, model, planeName, false, logger);
                 if (found)
                 {
-                    AppendLog($"✓ {planeName} selected - pausing to show...", Color.Green);
-                    Application.DoEvents(); // Update UI
-                    System.Threading.Thread.Sleep(1000); // Pause 1 second to see selection
+                    AppendLog($"{planeName} selected - pausing to show...", Color.Green);
+                    Application.DoEvents();
+                    System.Threading.Thread.Sleep(1000);
                 }
                 else
                 {
-                    AppendLog($"✗ {planeName} not found", Color.Red);
+                    AppendLog($"{planeName} not found", Color.Red);
                 }
             }
-            
+
             AppendLog("Plane selection test complete", Color.DarkBlue);
         }
 
@@ -329,38 +329,40 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         private void btnTestFaces_Click(object sender, EventArgs e)
         {
-            AppendLog("\n═══ Testing Face Selection ═══", Color.DarkBlue);
-            
+            AppendLog("\n=== Testing Face Selection ===", Color.DarkBlue);
+
             if (_addin == null)
             {
-                AppendLog("✗ Add-in reference not set", Color.Red);
+                AppendLog("Add-in reference not set", Color.Red);
                 return;
             }
-            
+
             var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
             if (model == null)
             {
-                AppendLog("✗ No active document. Please open a part with faces.", Color.Orange);
+                AppendLog("No active document. Please open a part with faces.", Color.Orange);
                 return;
             }
 
             var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
-            
+
             // Test finding top planar face (by highest Y-coordinate = top/bottom plane)
             AppendLog("Searching for top-most planar face (highest Y = top)...", Color.Black);
             var topFace = Utils.Selection.GetTopMostPlanarFace(model, logger);
             if (topFace != null)
             {
                 bool selected = Utils.Selection.SelectFace(model, topFace, false, logger);
-                AppendLog(selected ? "✓ Top planar face (highest Y-coordinate) found and selected" : "✗ Face found but selection failed", 
-                         selected ? Color.Green : Color.Orange);
+                AppendLog(selected
+                        ? "Top planar face (highest Y-coordinate) found and selected"
+                        : "Face found but selection failed",
+                        selected ? Color.Green : Color.Orange);
                 AppendLog("Note: Y-axis = top/bottom, X-axis = right/left, Z-axis = front/back", Color.DarkGray);
             }
             else
             {
-                AppendLog("✗ No planar faces found (create a simple box to test)", Color.Orange);
+                AppendLog("No planar faces found (create a simple box to test)", Color.Orange);
             }
-            
+
             int selCount = Utils.Selection.GetSelectionCount(model);
             AppendLog($"Current selection count: {selCount}", Color.DarkGray);
         }
@@ -370,28 +372,28 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         private void btnTestUndo_Click(object sender, EventArgs e)
         {
-            AppendLog("\n═══ Testing Undo Scope ═══", Color.DarkBlue);
-            
+            AppendLog("\n=== Testing Undo Scope ===", Color.DarkBlue);
+
             if (_addin == null)
             {
-                AppendLog("✗ Add-in reference not set", Color.Red);
+                AppendLog("Add-in reference not set", Color.Red);
                 return;
             }
-            
+
             var model = _addin.SwApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
             if (model == null)
             {
-                AppendLog("✗ No active document. Please open a part.", Color.Orange);
+                AppendLog("No active document. Please open a part.", Color.Orange);
                 return;
             }
 
             var logger = new Utils.Logger(msg => AppendLog(msg, Color.Black));
-            
-            AppendLog("⚠️ WARNING: EditRollback() behavior", Color.Orange);
+
+            AppendLog("WARNING: EditRollback() behavior", Color.Orange);
             AppendLog("SolidWorks EditRollback() rolls back to before the SELECTED feature,", Color.DarkGray);
             AppendLog("not to a programmatic undo point. This is a SolidWorks API limitation.", Color.DarkGray);
             AppendLog("If a feature is selected, it will rollback to before that feature.\n", Color.DarkGray);
-            
+
             // Test committed scope
             AppendLog("Test 1: Committed UndoScope (no rollback)", Color.DarkBlue);
             using (var scope = new Utils.UndoScope(model, "Test Operation", logger))
@@ -400,20 +402,20 @@ namespace TextToCad.SolidWorksAddin
                 scope.Commit();
                 AppendLog("  Scope committed - rollback prevented", Color.Black);
             }
-            AppendLog("✓ Committed scope test complete\n", Color.Green);
-            
+            AppendLog("Committed scope test complete\n", Color.Green);
+
             // Test uncommitted scope (will attempt rollback)
             AppendLog("Test 2: Uncommitted UndoScope (triggers rollback)", Color.DarkBlue);
             AppendLog("  Deselecting all features first...", Color.DarkGray);
             model.ClearSelection2(true);
-            
+
             using (var scope = new Utils.UndoScope(model, "Rollback Test", logger))
             {
                 AppendLog("  Inside undo scope...", Color.Black);
                 // Not calling Commit() - should trigger rollback warning
                 AppendLog("  (Not committing - will attempt rollback on dispose)", Color.DarkGray);
             }
-            AppendLog("✓ Rollback scope test complete", Color.Green);
+            AppendLog("Rollback scope test complete", Color.Green);
             AppendLog("\nNote: Actual rollback effect depends on feature selection state", Color.Orange);
         }
 
@@ -447,7 +449,7 @@ namespace TextToCad.SolidWorksAddin
 
         /// <summary>
         /// Execute the actual CAD operation based on parsed API response.
-        /// This is where natural language gets converted to real geometry!
+        /// This is where natural language gets converted to real geometry.
         /// Supports multi-operation instructions (multiple lines).
         /// </summary>
         /// <param name="response">Parsed instruction response from backend</param>
@@ -459,7 +461,7 @@ namespace TextToCad.SolidWorksAddin
                 // Get SolidWorks application and active document
                 if (_addin == null)
                 {
-                    AppendLog("❌ Add-in not initialized", Color.Red);
+                    AppendLog("Add-in not initialized", Color.Red);
                     Logger.Error("ExecuteCADOperation: _addin is null");
                     return false;
                 }
@@ -467,7 +469,7 @@ namespace TextToCad.SolidWorksAddin
                 var swApp = _addin.SwApp;
                 if (swApp == null)
                 {
-                    AppendLog("❌ SolidWorks application not available", Color.Red);
+                    AppendLog("SolidWorks application not available", Color.Red);
                     Logger.Error("ExecuteCADOperation: SwApp is null");
                     return false;
                 }
@@ -475,7 +477,7 @@ namespace TextToCad.SolidWorksAddin
                 var model = swApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
                 if (model == null)
                 {
-                    AppendLog("❌ No active SolidWorks document", Color.Red);
+                    AppendLog("No active SolidWorks document", Color.Red);
                     AppendLog("Please open a Part document first", Color.Orange);
                     System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: No active document");
                     return false;
@@ -484,7 +486,7 @@ namespace TextToCad.SolidWorksAddin
                 // Check document type
                 if (model.GetType() != (int)SolidWorks.Interop.swconst.swDocumentTypes_e.swDocPART)
                 {
-                    AppendLog("❌ Active document is not a Part", Color.Red);
+                    AppendLog("Active document is not a Part", Color.Red);
                     AppendLog("Please open a Part document (not Assembly or Drawing)", Color.Orange);
                     System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation: Document type is {model.GetType()}, not Part");
                     return false;
@@ -493,71 +495,66 @@ namespace TextToCad.SolidWorksAddin
                 // Create logger that forwards to UI
                 var logger = new Utils.Logger(msg => AppendLog(msg, Color.DarkGray));
 
-                // Check if this is a multi-operation instruction
-                // Debug: Log operations array status
                 if (response.Operations != null)
                 {
                     AppendLog($"Operations array present: {response.Operations.Count} items", Color.DarkGray);
                 }
                 else
                 {
-                    AppendLog("Operations array is NULL", Color.Orange);
+                    AppendLog("Operations array is null", Color.Orange);
                 }
-                
+
                 if (response.IsMultiOperation)
                 {
-                    AppendLog($"🔄 Multi-operation instruction: {response.Operations.Count} operations", Color.Blue);
-                    
+                    AppendLog($"Multi-operation instruction: {response.Operations.Count} operations", Color.Blue);
+
                     bool allSucceeded = true;
                     for (int i = 0; i < response.Operations.Count; i++)
                     {
                         var operation = response.Operations[i];
-                        AppendLog($"\n▶ Operation {i + 1}/{response.Operations.Count}:", Color.DarkBlue);
-                        
-                        // Debug: Log operation details
+                        AppendLog($"\nOperation {i + 1}/{response.Operations.Count}:", Color.DarkBlue);
+
                         if (operation != null)
                         {
                             AppendLog($"  Action: {operation.Action}, Shape: {operation.ParametersData?.Shape}", Color.DarkGray);
                         }
                         else
                         {
-                            AppendLog("  ERROR: Operation is NULL", Color.Red);
+                            AppendLog("  ERROR: Operation is null", Color.Red);
                             continue;
                         }
-                        
+
                         try
                         {
                             bool success = ExecuteSingleOperation(swApp, model, operation, logger);
-                            
+
                             if (success)
                             {
-                                AppendLog($"✓ Operation {i + 1} completed", Color.Green);
+                                AppendLog($"Operation {i + 1} completed", Color.Green);
                             }
                             else
                             {
-                                AppendLog($"✗ Operation {i + 1} failed", Color.Red);
+                                AppendLog($"Operation {i + 1} failed", Color.Red);
                                 allSucceeded = false;
-                                // Continue with remaining operations even if one fails
                             }
                         }
                         catch (Exception opEx)
                         {
-                            AppendLog($"✗ Operation {i + 1} threw exception: {opEx.Message}", Color.Red);
+                            AppendLog($"Operation {i + 1} threw exception: {opEx.Message}", Color.Red);
                             System.Diagnostics.Debug.WriteLine($"Operation {i + 1} exception: {opEx.Message}\n{opEx.StackTrace}");
                             allSucceeded = false;
-                            // Continue with remaining operations even if one throws
                         }
                     }
-                    
+
                     if (allSucceeded)
                     {
-                        AppendLog($"\n✓ All {response.Operations.Count} operations completed successfully!", Color.Green);
+                        AppendLog($"\nAll {response.Operations.Count} operations completed successfully", Color.Green);
                     }
                     else
                     {
-                        AppendLog($"\n⚠️ Some operations failed - check log above", Color.Orange);
+                        AppendLog("\nSome operations failed - check log above", Color.Orange);
                     }
-                    
+
                     return allSucceeded;
                 }
                 else
@@ -566,17 +563,17 @@ namespace TextToCad.SolidWorksAddin
                     var parsed = response.ParsedParameters;
                     if (parsed == null)
                     {
-                        AppendLog("⚠️ No parameters parsed from instruction", Color.Orange);
+                        AppendLog("No parameters parsed from instruction", Color.Orange);
                         System.Diagnostics.Debug.WriteLine("ExecuteCADOperation: ParsedParameters is null");
                         return false;
                     }
-                    
+
                     return ExecuteSingleOperation(swApp, model, parsed, logger);
                 }
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ CAD execution error: {ex.Message}", Color.Red);
+                AppendLog($"CAD execution error: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"ExecuteCADOperation exception: {ex.Message}");
                 System.Diagnostics.Debug.WriteLine($"Stack trace: {ex.StackTrace}");
                 return false;
@@ -586,11 +583,6 @@ namespace TextToCad.SolidWorksAddin
         /// <summary>
         /// Execute a single CAD operation by dispatching to the appropriate builder
         /// </summary>
-        /// <param name="swApp">SolidWorks application</param>
-        /// <param name="model">Active model document</param>
-        /// <param name="parsed">Parsed parameters for this operation</param>
-        /// <param name="logger">Logger instance</param>
-        /// <returns>True if operation succeeded; false otherwise</returns>
         private bool ExecuteSingleOperation(
             SolidWorks.Interop.sldworks.ISldWorks swApp,
             SolidWorks.Interop.sldworks.IModelDoc2 model,
@@ -604,41 +596,43 @@ namespace TextToCad.SolidWorksAddin
 
                 AppendLog($"Action: {parsed.Action}, Shape: {parsed.ParametersData?.Shape}", Color.DarkGray);
 
-                // === DISPATCH TO APPROPRIATE BUILDER ===
-
-                // Base Plate Creation
-                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular") || shape.Contains("base_plate"))
+                // Base plate
+                if (shape.Contains("base") || shape.Contains("plate") || shape.Contains("rectangular") || shape.Contains("base_plate") ||
+                    shape.Contains("block") || shape.Contains("box") || shape.Contains("cube"))
                 {
-                    AppendLog("Detected: Base Plate creation", Color.Blue);
+                    AppendLog("Detected: Base plate creation", Color.Blue);
                     return CreateBasePlate(swApp, model, parsed, logger);
                 }
-                
-                // Cylinder Creation (Sprint SW-5)
-                else if (shape.Contains("cylinder") || shape.Contains("cylindrical") || shape.Contains("circular"))
+
+                // Cylinder
+                if (shape.Contains("cylinder") || shape.Contains("cylindrical"))
                 {
                     AppendLog("Detected: Cylinder creation", Color.Blue);
                     return CreateCylinder(swApp, model, parsed, logger);
                 }
-                
-                // Hole Pattern (Sprint SW-4)
-                else if (shape.Contains("hole") || action.Contains("hole") || shape.Contains("pattern"))
+
+                // Hole pattern
+                if (shape.Contains("hole") || action.Contains("hole") || shape.Contains("pattern"))
                 {
                     AppendLog("Detected: Circular hole pattern creation", Color.Blue);
                     return CreateCircularHoles(swApp, model, parsed, logger);
                 }
-                
-                // Unknown operation
-                else
+
+                // Fillet
+                if (action.Contains("fillet") || shape.Contains("fillet"))
                 {
-                    AppendLog($"⚠️ Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
-                    AppendLog("Currently supported: base plates, cylinders, circular hole patterns", Color.Gray);
-                    System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation: Unrecognized action/shape: {action}/{shape}");
-                    return false;
+                    AppendLog("Detected: Fillet operation", Color.Blue);
+                    return CreateFillet(swApp, model, parsed, logger);
                 }
+
+                AppendLog($"Unknown operation: {parsed.Action} / {parsed.ParametersData?.Shape}", Color.Orange);
+                AppendLog("Currently supported: base plates, cylinders, circular hole patterns, fillets", Color.Gray);
+                System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation: Unrecognized action/shape: {action}/{shape}");
+                return false;
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Operation error: {ex.Message}", Color.Red);
+                AppendLog($"Operation error: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"ExecuteSingleOperation exception: {ex.Message}");
                 return false;
             }
@@ -655,40 +649,34 @@ namespace TextToCad.SolidWorksAddin
         {
             try
             {
-                // Extract dimensions from parsed parameters
-                // Note: Backend uses "diameter" for width sometimes, and "height" for extrusion depth
-                double sizeMm = 80.0;  // Default
-                double thicknessMm = 6.0;  // Default
-
                 var data = parsed.ParametersData;
-                if (data != null)
+                if (data == null)
                 {
-                    // Try to get size from diameter field (backend uses this for width)
-                    if (data.DiameterMm.HasValue && data.DiameterMm.Value > 0)
-                    {
-                        sizeMm = data.DiameterMm.Value;
-                    }
-
-                    // Try to get thickness from height
-                    if (data.HeightMm.HasValue && data.HeightMm.Value > 0)
-                    {
-                        thicknessMm = data.HeightMm.Value;
-                    }
+                    AppendLog("No parameters data for base plate", Color.Orange);
+                    return false;
                 }
 
-                AppendLog($"Creating base plate: {sizeMm}×{sizeMm}×{thicknessMm} mm", Color.Blue);
+                double widthMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
+                double lengthMm = data.LengthMm ?? data.WidthMm ?? data.DiameterMm ?? widthMm;
+                double thicknessMm = data.HeightMm ?? data.DepthMm ?? 6.0;
 
-                // Create the builder
+                AppendLog($"Creating base plate: {lengthMm}x{widthMm}x{thicknessMm} mm", Color.Blue);
+
                 var builder = new Builders.BasePlateBuilder(swApp, logger);
-
-                // Execute!
-                bool success = builder.EnsureBasePlate(model, sizeMm, thicknessMm);
-
-                return success;
+                return builder.EnsureBasePlate(
+                    model,
+                    widthMm,
+                    thicknessMm,
+                    widthMm,
+                    lengthMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
+                );
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Base plate creation failed: {ex.Message}", Color.Red);
+                AppendLog($"Base plate creation failed: {ex.Message}", Color.Red);
                 Logger.Error($"CreateBasePlate exception: {ex.Message}");
                 return false;
             }
@@ -705,48 +693,67 @@ namespace TextToCad.SolidWorksAddin
         {
             try
             {
-                // Extract parameters from parsed data
                 var data = parsed.ParametersData;
                 if (data == null)
                 {
-                    AppendLog("⚠️ No parameters data for hole pattern", Color.Orange);
+                    AppendLog("No parameters data for hole pattern", Color.Orange);
                     return false;
                 }
 
-                // Required parameters - with fallbacks from Pattern property
-                int count = data.Count ?? data.Pattern?.Count ?? 4;  // Default: 4 holes (square pattern)
-                double diameterMm = data.DiameterMm ?? 5.0;  // Default: 5mm holes (M5 bolts)
+                int count = data.Count ?? data.Pattern?.Count ?? 4;
+                double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 5.0);
 
-                // Optional parameters - check both direct and Pattern properties
-                double? angleDeg = data.AngleDeg ?? data.Pattern?.AngleDeg;  // null = full circle (360°)
-                double? patternRadiusMm = data.RadiusMm;  // null = calculated from plate size
-                double? plateSizeMm = data.WidthMm ?? 80.0;  // Default: 80mm plate
+                double? angleDeg = data.Pattern?.AngleDeg ?? data.AngleDeg;
+                double? patternRadiusMm = data.Pattern?.RadiusMm;
+                double? depthMm = data.DepthMm ?? data.HeightMm;
 
-                AppendLog($"Creating circular hole pattern:", Color.Blue);
+                double plateSizeMm;
+                if (data.WidthMm.HasValue || data.LengthMm.HasValue)
+                {
+                    if (data.WidthMm.HasValue && data.LengthMm.HasValue)
+                        plateSizeMm = Math.Min(data.WidthMm.Value, data.LengthMm.Value);
+                    else
+                        plateSizeMm = data.WidthMm ?? data.LengthMm ?? 80.0;
+                }
+                else
+                {
+                    plateSizeMm = 80.0;
+                    if (patternRadiusMm.HasValue)
+                    {
+                        double holeRadiusMm = diameterMm / 2.0;
+                        double minPlateMm = 2.0 * (patternRadiusMm.Value + holeRadiusMm);
+                        double paddedPlateMm = minPlateMm * 1.1;
+                        if (paddedPlateMm > plateSizeMm)
+                            plateSizeMm = paddedPlateMm;
+                    }
+                }
+
+                AppendLog("Creating circular hole pattern:", Color.Blue);
                 AppendLog($"  Count: {count}, Diameter: {diameterMm}mm", Color.DarkGray);
                 if (angleDeg.HasValue)
-                    AppendLog($"  Angle: {angleDeg}°", Color.DarkGray);
+                    AppendLog($"  Angle: {angleDeg} deg", Color.DarkGray);
                 if (patternRadiusMm.HasValue)
                     AppendLog($"  Pattern radius: {patternRadiusMm}mm", Color.DarkGray);
+                if (depthMm.HasValue)
+                    AppendLog($"  Depth: {depthMm}mm", Color.DarkGray);
 
-                // Create the builder
                 var builder = new Builders.CircularHolesBuilder(swApp, logger);
-
-                // Execute!
-                bool success = builder.CreatePatternOnTopFace(
+                return builder.CreatePatternOnTopFace(
                     model,
                     count,
                     diameterMm,
                     angleDeg,
                     patternRadiusMm,
-                    plateSizeMm
+                    plateSizeMm,
+                    depthMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
                 );
-
-                return success;
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Circular hole pattern creation failed: {ex.Message}", Color.Red);
+                AppendLog($"Circular hole pattern creation failed: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"CreateCircularHoles exception: {ex.Message}");
                 return false;
             }
@@ -763,33 +770,77 @@ namespace TextToCad.SolidWorksAddin
         {
             try
             {
-                // Extract parameters from parsed data
                 var data = parsed.ParametersData;
                 if (data == null)
                 {
-                    AppendLog("⚠️ No parameters data for cylinder", Color.Orange);
+                    AppendLog("No parameters data for cylinder", Color.Orange);
                     return false;
                 }
 
-                // Extract dimensions with defaults
-                double diameterMm = data.DiameterMm ?? 20.0;  // Default: 20mm diameter
-                double heightMm = data.HeightMm ?? 10.0;      // Default: 10mm height
+                double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 20.0);
+                double heightMm = data.HeightMm ?? data.DepthMm ?? 10.0;
 
-                AppendLog($"Creating cylinder:", Color.Blue);
+                AppendLog("Creating cylinder:", Color.Blue);
                 AppendLog($"  Diameter: {diameterMm}mm, Height: {heightMm}mm", Color.DarkGray);
 
-                // Create the builder
                 var builder = new Builders.ExtrudedCylinderBuilder(swApp, logger);
-
-                // Execute!
-                bool success = builder.CreateCylinderOnTopPlane(model, diameterMm, heightMm);
-
-                return success;
+                return builder.CreateCylinderOnTopPlane(
+                    model,
+                    diameterMm,
+                    heightMm,
+                    data.DraftAngleDeg,
+                    data.DraftOutward,
+                    data.FlipDirection
+                );
             }
             catch (Exception ex)
             {
-                AppendLog($"❌ Cylinder creation failed: {ex.Message}", Color.Red);
+                AppendLog($"Cylinder creation failed: {ex.Message}", Color.Red);
                 System.Diagnostics.Debug.WriteLine($"CreateCylinder exception: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Create a fillet using FilletBuilder
+        /// </summary>
+        private bool CreateFillet(
+            SolidWorks.Interop.sldworks.ISldWorks swApp,
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            ParsedParameters parsed,
+            Interfaces.ILogger logger)
+        {
+            try
+            {
+                var data = parsed.ParametersData;
+                if (data == null)
+                {
+                    AppendLog("No parameters data for fillet", Color.Orange);
+                    return false;
+                }
+
+                double radiusMm = data.RadiusMm ?? data.DiameterMm ?? 2.0;
+                bool allEdges = data.Count.HasValue && data.Count.Value == 0;
+
+                AppendLog("Creating fillet:", Color.Blue);
+                AppendLog($"  Radius: {radiusMm}mm", Color.DarkGray);
+                AppendLog($"  Target: {(allEdges ? "All edges" : "Recent feature edges")}", Color.DarkGray);
+
+                var builder = new Builders.FilletBuilder(swApp, logger);
+
+                if (allEdges)
+                {
+                    return builder.ApplyFilletToAllSharpEdges(model, radiusMm);
+                }
+                else
+                {
+                    return builder.ApplyFilletToRecentEdges(model, radiusMm);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Fillet creation failed: {ex.Message}", Color.Red);
+                System.Diagnostics.Debug.WriteLine($"CreateFillet exception: {ex.Message}");
                 return false;
             }
         }
@@ -806,22 +857,22 @@ namespace TextToCad.SolidWorksAddin
             string mode = isPreview ? "PREVIEW" : "EXECUTE";
             string source = response.IsAIParsed ? "AI" : "Rule-based";
 
-            AppendLog($"\n═══════════════════════════════════", Color.DarkBlue);
+            AppendLog("============================================", Color.DarkBlue);
             AppendLog($"  {mode} RESULTS", Color.DarkBlue);
-            AppendLog($"═══════════════════════════════════", Color.DarkBlue);
+            AppendLog("============================================", Color.DarkBlue);
             AppendLog($"Source: {source} parsing", Color.DarkGray);
             AppendLog($"Schema Version: {response.SchemaVersion}", Color.DarkGray);
             AppendLog("", Color.Black);
 
             // Display plan
-            AppendLog("📋 PLAN:", Color.DarkBlue);
+            AppendLog("PLAN:", Color.DarkBlue);
             txtPlan.Clear();
             if (response.Plan != null && response.Plan.Count > 0)
             {
                 foreach (var step in response.Plan)
                 {
-                    AppendLog($"  • {step}", Color.Black);
-                    txtPlan.AppendText($"• {step}\r\n");
+                    AppendLog($"  - {step}", Color.Black);
+                    txtPlan.AppendText($"- {step}\r\n");
                 }
             }
             else
@@ -834,12 +885,24 @@ namespace TextToCad.SolidWorksAddin
             // Display parsed parameters
             if (response.ParsedParameters != null)
             {
-                AppendLog("🔧 PARSED PARAMETERS:", Color.DarkBlue);
+                AppendLog("PARSED PARAMETERS:", Color.DarkBlue);
                 AppendLog($"  Action: {response.ParsedParameters.GetActionDescription()}", Color.Black);
                 AppendLog($"  {response.ParsedParameters.GetParametersSummary()}", Color.Black);
             }
 
-            AppendLog($"═══════════════════════════════════\n", Color.DarkBlue);
+            // Display operations summary if multiple
+            if (response.Operations != null && response.Operations.Count > 1)
+            {
+                AppendLog("", Color.Black);
+                AppendLog("OPERATIONS:", Color.DarkBlue);
+                for (int i = 0; i < response.Operations.Count; i++)
+                {
+                    var op = response.Operations[i];
+                    AppendLog($"  {i + 1}. {op.GetActionDescription()} - {op.GetParametersSummary()}", Color.Black);
+                }
+            }
+
+            AppendLog("============================================\n", Color.DarkBlue);
 
             // Update status
             lblStatus.Text = $"{mode} Complete - {source}";
@@ -885,7 +948,7 @@ namespace TextToCad.SolidWorksAddin
         private async void UpdateConnectionStatus(bool? forceStatus = null)
         {
             bool connected;
-            
+
             if (forceStatus.HasValue)
             {
                 connected = forceStatus.Value;
@@ -904,12 +967,12 @@ namespace TextToCad.SolidWorksAddin
 
             if (connected)
             {
-                lblConnectionStatus.Text = "● Connected";
+                lblConnectionStatus.Text = "Connected";
                 lblConnectionStatus.ForeColor = Color.Green;
             }
             else
             {
-                lblConnectionStatus.Text = "● Disconnected";
+                lblConnectionStatus.Text = "Disconnected";
                 lblConnectionStatus.ForeColor = Color.Red;
             }
         }

@@ -16,6 +16,9 @@ namespace TextToCad.SolidWorksAddin.Models
 
         [JsonProperty("angle_deg")]
         public double? AngleDeg { get; set; }
+
+        [JsonProperty("radius_mm")]
+        public double? RadiusMm { get; set; }
     }
 
     /// <summary>
@@ -35,11 +38,26 @@ namespace TextToCad.SolidWorksAddin.Models
         [JsonProperty("width_mm")]
         public double? WidthMm { get; set; }
 
+        [JsonProperty("length_mm")]
+        public double? LengthMm { get; set; }
+
         [JsonProperty("radius_mm")]
         public double? RadiusMm { get; set; }
 
+        [JsonProperty("depth_mm")]
+        public double? DepthMm { get; set; }
+
         [JsonProperty("angle_deg")]
         public double? AngleDeg { get; set; }
+
+        [JsonProperty("draft_angle_deg")]
+        public double? DraftAngleDeg { get; set; }
+
+        [JsonProperty("draft_outward")]
+        public bool? DraftOutward { get; set; }
+
+        [JsonProperty("flip_direction")]
+        public bool? FlipDirection { get; set; }
 
         [JsonProperty("shape")]
         public string Shape { get; set; }
@@ -107,6 +125,30 @@ namespace TextToCad.SolidWorksAddin.Models
             if (ParametersData.HeightMm.HasValue)
                 parts.Add($"Height: {ParametersData.HeightMm.Value} mm");
 
+            if (ParametersData.LengthMm.HasValue)
+                parts.Add($"Length: {ParametersData.LengthMm.Value} mm");
+
+            if (ParametersData.WidthMm.HasValue)
+                parts.Add($"Width: {ParametersData.WidthMm.Value} mm");
+
+            if (ParametersData.DepthMm.HasValue)
+                parts.Add($"Depth: {ParametersData.DepthMm.Value} mm");
+
+            if (ParametersData.RadiusMm.HasValue)
+                parts.Add($"Radius: {ParametersData.RadiusMm.Value} mm");
+
+            if (ParametersData.AngleDeg.HasValue)
+                parts.Add($"Angle: {ParametersData.AngleDeg.Value} deg");
+
+            if (ParametersData.DraftAngleDeg.HasValue)
+                parts.Add($"Draft: {ParametersData.DraftAngleDeg.Value} deg");
+
+            if (ParametersData.DraftOutward.HasValue)
+                parts.Add($"Draft Outward: {ParametersData.DraftOutward.Value}");
+
+            if (ParametersData.FlipDirection.HasValue)
+                parts.Add($"Flip Direction: {ParametersData.FlipDirection.Value}");
+
             if (ParametersData.Count.HasValue)
                 parts.Add($"Count: {ParametersData.Count.Value}");
 
@@ -116,7 +158,9 @@ namespace TextToCad.SolidWorksAddin.Models
                 if (ParametersData.Pattern.Count.HasValue)
                     parts.Add($"Pattern Count: {ParametersData.Pattern.Count.Value}");
                 if (ParametersData.Pattern.AngleDeg.HasValue)
-                    parts.Add($"Angle: {ParametersData.Pattern.AngleDeg.Value}°");
+                    parts.Add($"Angle: {ParametersData.Pattern.AngleDeg.Value} deg");
+                if (ParametersData.Pattern.RadiusMm.HasValue)
+                    parts.Add($"Pattern Radius: {ParametersData.Pattern.RadiusMm.Value} mm");
             }
 
             return parts.Count > 0 ? string.Join(", ", parts) : "No parameters detected";

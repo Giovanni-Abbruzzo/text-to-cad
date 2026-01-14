@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("TextToCad")]
 [assembly: AssemblyProduct("TextToCad.SolidWorksAddin")]
-[assembly: AssemblyCopyright("Copyright © 2025 Giovanni Abbruzzo")]
+[assembly: AssemblyCopyright("Copyright (c) 2025 Giovanni Abbruzzo")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

@@ -16,7 +16,7 @@ namespace TextToCad.SolidWorksAddin.Builders
     /// 2. Find topmost planar face
     /// 3. Create sketch on that face
     /// 4. Draw circles at polar positions (evenly distributed)
-    /// 5. Cut-Extrude through all to create holes
+    /// 5. Cut-Extrude through all (or blind depth if provided)
     /// 6. Rebuild model
     /// 
     /// DEPENDENCIES:
@@ -29,7 +29,7 @@ namespace TextToCad.SolidWorksAddin.Builders
     /// COORDINATE SYSTEM:
     /// - Pattern centered at model origin (0, 0)
     /// - Angles measured counter-clockwise from +X axis
-    /// - First hole at angle 0° (positive X direction)
+    /// - First hole at angle 0 deg (positive X direction)
     /// </remarks>
     public class CircularHolesBuilder
     {
@@ -67,49 +67,29 @@ namespace TextToCad.SolidWorksAddin.Builders
         /// <param name="angleDeg">Optional angle span for pattern in degrees (default: 360 = full circle)</param>
         /// <param name="patternRadiusMm">Optional radius of pattern circle in mm (default: plateSizeMm * 0.3)</param>
         /// <param name="plateSizeMm">Size of base plate if created (default: 80mm, used for pattern radius calculation)</param>
+        /// <param name="depthMm">Optional cut depth in mm. If null, uses Through All.</param>
+        /// <param name="draftAngleDeg">Optional draft angle in degrees (adds taper to the cut)</param>
+        /// <param name="draftOutward">Optional draft direction: true = outward, false = inward</param>
+        /// <param name="flipDirection">Optional: true to flip the cut direction</param>
         /// <returns>True if holes created successfully; false on error</returns>
         /// <remarks>
         /// PATTERN LAYOUT:
         /// - Holes evenly distributed around a circle of radius patternRadiusMm
-        /// - First hole at angle 0° (positive X axis)
+        /// - First hole at angle 0 deg (positive X axis)
         /// - Subsequent holes at angleStep intervals counter-clockwise
         /// - angleStep = angleDeg / count
-        /// 
-        /// PARAMETERS:
-        /// - count: 4 = square pattern, 6 = hexagonal, 8 = octagonal, etc.
-        /// - diameterMm: Hole diameter (e.g., 5mm for M5 bolts, 6mm for M6)
-        /// - angleDeg: 360 = full circle, 180 = semicircle, 90 = quarter circle
-        /// - patternRadiusMm: Distance from center to hole centers
-        ///   - Default: plateSizeMm * 0.3 (e.g., 24mm for 80mm plate)
-        ///   - Should be < plateSizeMm/2 to keep holes on the plate
-        /// 
-        /// EXAMPLES:
-        /// - 4 mounting holes: count=4, diameterMm=5, angleDeg=360, patternRadiusMm=30
-        /// - 6 bolt circle: count=6, diameterMm=6, angleDeg=360, patternRadiusMm=40
-        /// - 3 holes in arc: count=3, diameterMm=4, angleDeg=180, patternRadiusMm=25
-        /// 
-        /// CUT EXTRUDE:
-        /// - Uses "Through All" to cut through entire part
-        /// - Creates hole for full depth of part
         /// </remarks>
-        /// <example>
-        /// // Create 4 mounting holes (square pattern)
-        /// var builder = new CircularHolesBuilder(swApp, logger);
-        /// bool success = builder.CreatePatternOnTopFace(model, 
-        ///     count: 4, 
-        ///     diameterMm: 5.0,
-        ///     angleDeg: 360,
-        ///     patternRadiusMm: 30.0,
-        ///     plateSizeMm: 80.0
-        /// );
-        /// </example>
         public bool CreatePatternOnTopFace(
-            IModelDoc2 model, 
-            int count, 
-            double diameterMm, 
-            double? angleDeg = null, 
-            double? patternRadiusMm = null, 
-            double? plateSizeMm = 80.0)
+            IModelDoc2 model,
+            int count,
+            double diameterMm,
+            double? angleDeg = null,
+            double? patternRadiusMm = null,
+            double? plateSizeMm = 80.0,
+            double? depthMm = null,
+            double? draftAngleDeg = null,
+            bool? draftOutward = null,
+            bool? flipDirection = null)
         {
             if (model == null)
             {
@@ -135,16 +115,54 @@ namespace TextToCad.SolidWorksAddin.Builders
             double actualPlateSizeMm = plateSizeMm ?? 80.0;
             double actualPatternRadiusMm = patternRadiusMm ?? (actualPlateSizeMm * 0.3);
 
-            _log.Info($"Creating circular hole pattern:");
+            double? sanitizedDraftAngleDeg = null;
+            if (draftAngleDeg.HasValue)
+            {
+                if (draftAngleDeg.Value <= 0)
+                {
+                    _log.Warn($"Draft angle must be > 0 deg; ignoring value {draftAngleDeg.Value}");
+                }
+                else if (draftAngleDeg.Value >= 89)
+                {
+                    _log.Warn($"Draft angle too large; capping to 89 deg (requested {draftAngleDeg.Value})");
+                    sanitizedDraftAngleDeg = 89.0;
+                }
+                else
+                {
+                    sanitizedDraftAngleDeg = draftAngleDeg.Value;
+                }
+            }
+
+            bool useDraft = sanitizedDraftAngleDeg.HasValue;
+            bool draftOut = draftOutward ?? false;
+            bool flip = flipDirection ?? false;
+
+            if (actualAngleDeg <= 0)
+            {
+                _log.Warn($"Invalid angle span: {actualAngleDeg} deg. Defaulting to 360 deg.");
+                actualAngleDeg = 360.0;
+            }
+
+            if (actualPatternRadiusMm <= 0)
+            {
+                _log.Warn($"Invalid pattern radius: {actualPatternRadiusMm} mm. Defaulting to {actualPlateSizeMm * 0.3} mm.");
+                actualPatternRadiusMm = actualPlateSizeMm * 0.3;
+            }
+
+            _log.Info("Creating circular hole pattern:");
             _log.Info($"  Count: {count} holes");
             _log.Info($"  Diameter: {diameterMm} mm");
-            _log.Info($"  Angle span: {actualAngleDeg}°");
+            _log.Info($"  Angle span: {actualAngleDeg} deg");
             _log.Info($"  Pattern radius: {actualPatternRadiusMm} mm");
+            if (useDraft)
+                _log.Info($"  Draft: {sanitizedDraftAngleDeg} deg, outward={draftOut}");
+            if (flip)
+                _log.Info("  Flip direction: true");
 
             // Validate pattern radius isn't too large
             if (actualPatternRadiusMm > actualPlateSizeMm / 2.0)
             {
-                _log.Warn($"Pattern radius ({actualPatternRadiusMm}mm) is larger than half plate size ({actualPlateSizeMm/2.0}mm)");
+                _log.Warn($"Pattern radius ({actualPatternRadiusMm}mm) is larger than half plate size ({actualPlateSizeMm / 2.0}mm)");
                 _log.Warn("Holes may extend beyond the part boundary");
             }
 
@@ -163,7 +181,7 @@ namespace TextToCad.SolidWorksAddin.Builders
                     // Step 2: Find topmost planar face
                     _log.Info("Finding topmost planar face...");
                     IFace2 topFace = Selection.GetTopMostPlanarFace(model, _log);
-                    
+
                     if (topFace == null)
                     {
                         _log.Error("Failed to find topmost planar face");
@@ -171,7 +189,7 @@ namespace TextToCad.SolidWorksAddin.Builders
                         return false;
                     }
 
-                    _log.Info("✓ Top face found");
+                    _log.Info("Top face found");
 
                     // Step 3: Select the face and start sketch
                     if (!Selection.SelectFace(model, topFace, false, _log))
@@ -192,11 +210,11 @@ namespace TextToCad.SolidWorksAddin.Builders
 
                     // Clear selections to avoid conflicts
                     model.ClearSelection2(true);
-                    _log.Info("✓ Sketch active on top face");
+                    _log.Info("Sketch active on top face");
 
                     // Step 4: Calculate hole positions and draw circles
                     _log.Info($"Drawing {count} circles in pattern...");
-                    
+
                     double angleStepDeg = actualAngleDeg / count;
                     double patternRadiusM = Units.MmToM(actualPatternRadiusMm);
                     double holeRadiusM = Units.MmToM(diameterMm / 2.0);
@@ -206,12 +224,12 @@ namespace TextToCad.SolidWorksAddin.Builders
                         // Calculate polar position
                         double angleDegrees = i * angleStepDeg;
                         double angleRadians = angleDegrees * Math.PI / 180.0;
-                        
+
                         // Convert to Cartesian (origin at model center)
                         double x = patternRadiusM * Math.Cos(angleRadians);
                         double y = patternRadiusM * Math.Sin(angleRadians);
 
-                        _log.Info($"  Hole {i+1}: angle={angleDegrees:F1}°, position=({x*1000:F2}, {y*1000:F2}) mm");
+                        _log.Info($"  Hole {i + 1}: angle={angleDegrees:F1} deg, position=({x * 1000:F2}, {y * 1000:F2}) mm");
 
                         // Draw circle at this position
                         object circleObj = model.SketchManager.CreateCircleByRadius(
@@ -221,7 +239,7 @@ namespace TextToCad.SolidWorksAddin.Builders
 
                         if (circleObj == null)
                         {
-                            _log.Error($"Failed to create circle at hole position {i+1}");
+                            _log.Error($"Failed to create circle at hole position {i + 1}");
                             _log.Error("Possible causes:");
                             _log.Error("  - Hole extends beyond part boundary");
                             _log.Error("  - Invalid sketch state");
@@ -229,56 +247,43 @@ namespace TextToCad.SolidWorksAddin.Builders
                         }
                     }
 
-                    _log.Info($"✓ {count} circles created successfully");
+                    _log.Info($"{count} circles created successfully");
 
                     // Step 5: Exit sketch
                     _log.Info("Exiting sketch...");
                     model.SketchManager.InsertSketch(true);
 
-                    // Step 6: Create cut-extrude (through all)
-                    _log.Info("Creating cut-extrude (Through All)...");
+                    // Step 6: Create cut-extrude
+                    bool useThroughAll = !depthMm.HasValue || depthMm.Value <= 0.0;
+                    double depthM = useThroughAll ? 0.0 : Units.MmToM(depthMm.Value);
+                    int endCondition = useThroughAll
+                        ? (int)swEndConditions_e.swEndCondThroughAll
+                        : (int)swEndConditions_e.swEndCondBlind;
+                    double draftAngleRad = useDraft ? (sanitizedDraftAngleDeg.Value * Math.PI / 180.0) : 0.0;
 
-                    // FeatureCut4 parameters:
-                    // SD: Single direction (true) vs both directions
-                    // Flip: Flip cut direction (usually false for top face)
-                    // Dir: Direction type
-                    // T1: End condition type (swEndCondThroughAll = 1)
-                    // T2: End condition type for direction 2 (not used)
-                    // D1: Depth for direction 1 (not used for through all)
-                    // D2: Depth for direction 2 (not used)
-                    // DDir: Draft direction
-                    // DDir2: Draft direction 2
-                    // DDirBoth: Draft both directions
-                    // DFlag: Draft flag
-                    // DDirAngle: Draft angle 1
-                    // DDirAngle2: Draft angle 2
-                    // OffsetReverse1: Offset reverse 1
-                    // OffsetReverse2: Offset reverse 2
-                    // TranslateSurface1: Translate surface 1
-                    // TranslateSurface2: Translate surface 2
-                    // Merge: Merge result (usually false for cuts)
-                    // FeatureCut4 signature (27 parameters):
-                    // (bool, bool, bool, int, int, double, double, bool, bool, bool, bool, double, double, 
-                    //  bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, int, double, bool, bool)
+                    _log.Info(useThroughAll
+                        ? "Creating cut-extrude (Through All)..."
+                        : $"Creating cut-extrude (depth={depthMm} mm)...");
+
                     IFeature cutFeature = model.FeatureManager.FeatureCut4(
                         true,              // 1. SD: Single direction
-                        false,             // 2. Flip: Don't flip (cut downward)
-                        false,             // 3. Dir: Direction (not used for through all)
-                        (int)swEndConditions_e.swEndCondThroughAll,  // 4. T1: Through All (int)
-                        0,                 // 5. T2: Not used (int - single direction)
-                        0.0,               // 6. D1: Not used (double - through all cuts through everything)
-                        0.0,               // 7. D2: Not used (double)
-                        false,             // 8. DDir: No draft
+                        flip,              // 2. Flip: Flip cut direction
+                        false,             // 3. Dir: Direction (not used for through all/blind)
+                        endCondition,      // 4. T1: End condition type
+                        0,                 // 5. T2: Not used (single direction)
+                        depthM,            // 6. D1: Depth in meters
+                        0.0,               // 7. D2: Not used
+                        draftOut,          // 8. DDir: Draft direction
                         false,             // 9. DDir2: No draft
                         false,             // 10. DDirBoth: No draft
-                        false,             // 11. DFlag: Draft flag
-                        0.0,               // 12. DDirAngle: No draft angle (double)
-                        0.0,               // 13. DDirAngle2: No draft angle (double)
+                        useDraft,          // 11. DFlag: Draft flag
+                        draftAngleRad,     // 12. DDirAngle: Draft angle (radians)
+                        0.0,               // 13. DDirAngle2: No draft angle
                         false,             // 14. OffsetReverse1: No offset reverse
                         false,             // 15. OffsetReverse2: No offset reverse
                         false,             // 16. TranslateSurface1: No translate
                         false,             // 17. TranslateSurface2: No translate
-                        false,             // 18. Merge: Don't merge (cut operation)
+                        false,             // 18. Merge: Do not merge (cut operation)
                         false,             // 19. UseFeatScope: Not used
                         false,             // 20. UseAutoSelect: Not used
                         false,             // 21. T2AutoSelect: Not used
@@ -301,16 +306,16 @@ namespace TextToCad.SolidWorksAddin.Builders
                     }
 
                     string featureName = cutFeature.Name;
-                    _log.Info($"✓ Cut feature created: '{featureName}'");
+                    _log.Info($"Cut feature created: '{featureName}'");
 
                     // Step 7: Rebuild model
                     _log.Info("Rebuilding model...");
                     model.ForceRebuild3(false);
 
-                    _log.Info("✓ Circular pattern of cut holes created successfully!");
+                    _log.Info("Circular pattern of cut holes created successfully");
                     _log.Info($"  Feature: {featureName}");
-                    _log.Info($"  Holes: {count} × {diameterMm}mm diameter");
-                    _log.Info($"  Pattern: {actualPatternRadiusMm}mm radius, {actualAngleDeg}° span");
+                    _log.Info($"  Holes: {count} x {diameterMm}mm diameter");
+                    _log.Info($"  Pattern: {actualPatternRadiusMm}mm radius, {actualAngleDeg} deg span");
 
                     // Mark operation as successful
                     scope.Commit();
@@ -354,7 +359,7 @@ namespace TextToCad.SolidWorksAddin.Builders
 
             // Check for existing solid bodies
             object[] bodies = partDoc.GetBodies2((int)swBodyType_e.swSolidBody, true) as object[];
-            
+
             if (bodies != null && bodies.Length > 0)
             {
                 _log.Info($"Model has {bodies.Length} solid body(ies) - ready for holes");
@@ -363,17 +368,17 @@ namespace TextToCad.SolidWorksAddin.Builders
 
             // No bodies - need to create base plate
             _log.Info("No solid bodies found - creating base plate first...");
-            
+
             var basePlateBuilder = new BasePlateBuilder(_sw, _log);
             bool success = basePlateBuilder.EnsureBasePlate(
-                model, 
-                sizeMm: plateSizeMm, 
+                model,
+                sizeMm: plateSizeMm,
                 thicknessMm: 6.0  // Default thickness
             );
 
             if (success)
             {
-                _log.Info("✓ Base plate created - ready for holes");
+                _log.Info("Base plate created - ready for holes");
             }
             else
             {

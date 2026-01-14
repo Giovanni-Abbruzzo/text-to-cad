@@ -85,17 +85,17 @@ namespace TextToCad.SolidWorksAddin.Utils
 
                 if (success)
                 {
-                    logger?.Info($"✓ Plane selected: {planeName}");
+                    logger?.Info($"Selected plane: {planeName}");
                     return true;
                 }
                 else
                 {
-                    logger?.Warn($"✗ Failed to select plane: {planeName}");
+                    logger?.Warn($"Failed to select plane: {planeName}");
                     logger?.Warn("Possible causes:");
                     logger?.Warn("  - Plane name is incorrect (check spelling/capitalization)");
                     logger?.Warn("  - Document type is not Part (planes not available in Drawings)");
                     logger?.Warn("  - Plane has been renamed or deleted");
-                    logger?.Warn($"  - Try one of: 'Front Plane', 'Top Plane', 'Right Plane'");
+                    logger?.Warn("  - Try one of: 'Front Plane', 'Top Plane', 'Right Plane'");
                     return false;
                 }
             }
@@ -108,7 +108,7 @@ namespace TextToCad.SolidWorksAddin.Utils
 
         /// <summary>
         /// Find the topmost planar face in the model.
-        /// "Topmost" is defined as the planar face with the highest Z-coordinate center.
+        /// "Topmost" is defined as the planar face with the highest Y-coordinate center.
         /// </summary>
         /// <param name="model">Model document (must be a Part)</param>
         /// <param name="logger">Optional logger for diagnostics</param>
@@ -119,12 +119,12 @@ namespace TextToCad.SolidWorksAddin.Utils
         /// 2. Get all solid bodies in the part
         /// 3. Iterate through all faces of all bodies
         /// 4. Filter to planar faces only (using IsSurfaceType)
-        /// 5. Calculate center point Z-coordinate for each planar face
-        /// 6. Return the face with maximum Z value
+        /// 5. Calculate center point Y-coordinate for each planar face
+        /// 6. Return the face with maximum Y value
         /// 
         /// LIMITATIONS:
         /// - Only works for Part documents
-        /// - Assumes "top" means +Z direction (standard orientation)
+        /// - Assumes "top" means +Y direction (SolidWorks default orientation)
         /// - If model is rotated, results may be unexpected
         /// - Does not account for face area (small face at top will still win)
         /// 
@@ -232,7 +232,7 @@ namespace TextToCad.SolidWorksAddin.Utils
 
                 if (topFace != null)
                 {
-                    logger?.Info($"✓ Found topmost planar face (Y={Units.MToMm(maxY):F2} mm)");
+                    logger?.Info($"Found topmost planar face (Y={Units.MToMm(maxY):F2} mm)");
                     logger?.Info($"  Total planar faces evaluated: {planarFaceCount}");
                 }
                 else
@@ -297,11 +297,11 @@ namespace TextToCad.SolidWorksAddin.Utils
 
                 if (success)
                 {
-                    logger?.Info("✓ Face selected");
+                    logger?.Info("Selected face");
                 }
                 else
                 {
-                    logger?.Warn("✗ Failed to select face");
+                    logger?.Warn("Failed to select face");
                 }
 
                 return success;

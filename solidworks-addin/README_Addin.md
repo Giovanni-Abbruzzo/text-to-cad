@@ -1947,6 +1947,385 @@ builder.CreateCylinderOnPlane(model, "Front Plane",
 
 ---
 
+### Face Mapping, Fillet, and Guardrails (Sprint SW-6)
+
+Sprint SW-6 adds intelligent face selection, fillet operations, and comprehensive validation guardrails to the add-in.
+
+#### FaceMapping - Natural Language Face Selection
+
+Map natural language orientation terms to actual model faces using surface normal analysis.
+
+**Supported Orientations:**
+- **top** → +Z axis (upward-facing faces)
+- **bottom** → -Z axis (downward-facing faces)
+- **right** → +X axis (right-side faces)
+- **left** → -X axis (left-side faces)
+- **front** → +Y axis (front-facing faces)
+- **back** → -Y axis (back-facing faces)
+
+**Basic Usage:**
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+
+// Find the top face of the model
+IFace2 topFace = FaceMapping.FindByOrientation(model, "top", logger);
+
+if (topFace != null)
+{
+    // Select the face for sketching or operations
+    SelectionData selData = model.Extension.CreateSelectData();
+    topFace.Select4(true, selData);
+    
+    // Now you can start a sketch on this face
+    model.SketchManager.InsertSketch(true);
+}
+```
+
+**How It Works:**
+
+1. **Iterates all planar faces** on all solid bodies
+2. **Calculates surface normal** for each face
+3. **Computes dot product** with target direction vector
+4. **Returns best match** above alignment threshold (0.7 ≈ 45° tolerance)
+
+**Example: Create Cylinder on Top Face**
+```csharp
+// Find top face
+IFace2 topFace = FaceMapping.FindByOrientation(model, "top", logger);
+
+if (topFace != null)
+{
+    // Select face
+    topFace.Select4(true, null);
+    
+    // Start sketch on selected face
+    model.SketchManager.InsertSketch(true);
+    
+    // Draw circle and extrude...
+}
+```
+
+**Helper Methods:**
+```csharp
+// Get all edges from a face (useful for fillets)
+IEdge[] edges = FaceMapping.GetFaceEdges(face);
+
+// Get all edges from a feature
+IEdge[] edges = FaceMapping.GetFeatureEdges(feature);
+```
+
+---
+
+#### FilletBuilder - Rounded Edge Features
+
+Apply fillets (rounded edges) to recent features or all sharp edges in the model.
+
+**Basic Usage:**
+```csharp
+using TextToCad.SolidWorksAddin.Builders;
+
+ILogger logger = new Utils.Logger(msg => Console.WriteLine(msg));
+var builder = new FilletBuilder(swApp, logger);
+
+// Apply 2mm fillet to most recently created feature
+bool success = builder.ApplyFilletToRecentEdges(model, 2.0);
+
+// OR apply 3mm fillet to all sharp edges
+bool success = builder.ApplyFilletToAllSharpEdges(model, 3.0);
+```
+
+**Method 1: Recent Feature Edges**
+
+Applies fillet only to the last created feature's edges:
+
+```csharp
+// Create a cylinder first
+var cylBuilder = new ExtrudedCylinderBuilder(swApp, logger);
+cylBuilder.CreateCylinderOnTopPlane(model, 20.0, 30.0);
+
+// Now fillet its edges with 2mm radius
+var filletBuilder = new FilletBuilder(swApp, logger);
+bool success = filletBuilder.ApplyFilletToRecentEdges(model, 2.0);
+// Result: Rounded top and bottom edges of cylinder
+```
+
+**Method 2: All Sharp Edges**
+
+Applies fillet to all edges in the model (with optional angle filter):
+
+```csharp
+// Apply 1.5mm fillet to all edges
+builder.ApplyFilletToAllSharpEdges(model, 1.5);
+
+// OR filter to only sharp edges (> 30 degrees)
+builder.ApplyFilletToAllSharpEdges(model, 1.5, angleThresholdDeg: 30.0);
+```
+
+**Integration with Backend:**
+```csharp
+// Backend can return fillet instructions
+// Example: "fillet 2mm on recent feature"
+if (parsed.Action == "fillet")
+{
+    var builder = new FilletBuilder(swApp, logger);
+    double radiusMm = parsed.ParametersData?.DiameterMm ?? 2.0;
+    
+    // Apply fillet to recent feature
+    bool success = builder.ApplyFilletToRecentEdges(model, radiusMm);
+}
+```
+
+**Common Fillet Radii:**
+- **0.5mm** - Small parts, tight clearances
+- **1.0mm** - General purpose, small features
+- **2.0mm** - Standard fillet, medium parts
+- **3.0mm** - Larger parts, aesthetic rounding
+- **5.0mm** - Large parts, structural features
+
+**Error Handling:**
+```csharp
+try
+{
+    var builder = new FilletBuilder(swApp, logger);
+    bool success = builder.ApplyFilletToRecentEdges(model, 2.0);
+    
+    if (!success)
+    {
+        // Check log for specific error:
+        // - Radius too large for edge geometry
+        // - No recent feature found
+        // - Invalid edge selection
+        // - Fillet would create invalid geometry
+    }
+}
+catch (Exception ex)
+{
+    logger.Error($"Fillet failed: {ex.Message}");
+}
+```
+
+---
+
+#### ExecuteController - Preview → Execute Flow
+
+Service controller that orchestrates the complete workflow from instruction to execution with validation guardrails.
+
+**Purpose:**
+- Separates API communication from UI logic
+- Provides validation and guardrails
+- Orchestrates builder execution
+- Enables Preview → Execute pattern
+
+**Preview Mode (No Side Effects):**
+```csharp
+using TextToCad.SolidWorksAddin.Controllers;
+
+var controller = new ExecuteController(swApp, logger);
+
+// Preview what will happen (calls /dry_run)
+string previewJson = await controller.PreviewAsync(
+    "create 100mm base plate 5mm thick", 
+    useAI: false
+);
+
+// Display preview to user for review
+// User can see plan before execution
+Console.WriteLine(previewJson);
+```
+
+**Execute Mode (Creates Geometry):**
+```csharp
+// After user reviews and confirms
+bool success = await controller.ExecuteAsync(
+    "create 100mm base plate 5mm thick",
+    useAI: false
+);
+
+if (success)
+{
+    logger.Info("✓ Instruction executed successfully");
+}
+```
+
+**Complete Workflow Example:**
+```csharp
+var controller = new ExecuteController(swApp, logger);
+
+// 1. Preview
+string preview = await controller.PreviewAsync(instruction);
+MessageBox.Show($"Will execute:\n{preview}\n\nProceed?");
+
+// 2. Execute if user confirms
+if (userConfirmed)
+{
+    bool success = await controller.ExecuteAsync(instruction);
+}
+```
+
+**Validation Guardrails:**
+
+The controller automatically validates:
+
+1. **Instruction Length**: Must be ≥ 3 characters
+2. **Parameter Values**: Dimensions must be > 0
+   ```csharp
+   // These will be rejected:
+   "create -5mm cylinder"  // ✗ Negative dimension
+   "create 0mm plate"      // ✗ Zero dimension
+   ```
+3. **Document Type**: Must be a Part (not Assembly/Drawing)
+4. **Active Model**: Must have an active document
+
+**Builder Routing:**
+
+ExecuteController automatically routes operations to the correct builder:
+
+```csharp
+// Automatically detects and routes:
+"create base plate"      → BasePlateBuilder
+"create cylinder"        → ExtrudedCylinderBuilder
+"create holes"           → CircularHolesBuilder
+"fillet 2mm"            → FilletBuilder
+```
+
+**Multi-Operation Support:**
+```csharp
+// ExecuteController handles multi-operation instructions
+bool success = await controller.ExecuteAsync(
+    "create 100mm plate 5mm thick create 20mm cylinder 40mm tall"
+);
+
+// Internally:
+// 1. Detects 2 operations
+// 2. Executes base plate
+// 3. Executes cylinder
+// 4. Returns combined success status
+```
+
+**Error Recovery:**
+
+All operations wrapped in `UndoScope` for automatic rollback:
+
+```csharp
+// If operation fails mid-execution:
+// - UndoScope automatically rolls back changes
+// - Model returns to pre-operation state
+// - User sees clear error message
+```
+
+**Integration with TaskPaneControl:**
+
+```csharp
+// In TaskPaneControl
+private async void btnExecute_Click(object sender, EventArgs e)
+{
+    var controller = new ExecuteController(
+        _addin.SwApp, 
+        Logger
+    );
+    
+    // Preview first
+    string preview = await controller.PreviewAsync(
+        txtInstruction.Text,
+        chkUseAI.Checked
+    );
+    
+    // Show preview
+    txtResponse.Text = preview;
+    
+    // Execute if user clicks "Confirm"
+    // (separate button or confirmation dialog)
+}
+```
+
+---
+
+### Example: Complete Face-Mapped Operation
+
+Create a cylinder on the top face of an existing part:
+
+```csharp
+using TextToCad.SolidWorksAddin.Utils;
+using TextToCad.SolidWorksAddin.Builders;
+
+// 1. Find top face
+IFace2 topFace = FaceMapping.FindByOrientation(model, "top", logger);
+
+if (topFace == null)
+{
+    logger.Error("No top face found");
+    return;
+}
+
+// 2. Select the face
+topFace.Select4(true, null);
+
+// 3. Start sketch on face
+model.SketchManager.InsertSketch(true);
+
+// 4. Draw circle and extrude
+// (cylinder builder would need face-aware variant)
+var builder = new ExtrudedCylinderBuilder(swApp, logger);
+// ... create cylinder ...
+
+// 5. Apply fillet to new feature
+var filletBuilder = new FilletBuilder(swApp, logger);
+filletBuilder.ApplyFilletToRecentEdges(model, 2.0);
+```
+
+---
+
+### Sprint SW-6 Summary
+
+**New Components:**
+1. **FaceMapping** (`Utils/FaceMapping.cs`)
+   - Natural language face selection
+   - Surface normal analysis
+   - Edge extraction helpers
+
+2. **FilletBuilder** (`Builders/FilletBuilder.cs`)
+   - Recent feature filleting
+   - All edges filleting
+   - Radius validation
+
+3. **ExecuteController** (`Controllers/ExecuteController.cs`)
+   - Preview → Execute workflow
+   - Validation guardrails
+   - Builder orchestration
+   - Multi-operation support
+
+**Validation & Safety:**
+- Input length validation (≥ 3 chars)
+- Dimension validation (> 0)
+- Document type validation (Part only)
+- Automatic undo on failure
+- Clear error messages
+
+**Integration Pattern:**
+```
+User Input
+    ↓
+ExecuteController.PreviewAsync()
+    ↓
+[User Reviews]
+    ↓
+ExecuteController.ExecuteAsync()
+    ↓
+Validation Guardrails
+    ↓
+Builder Routing
+    ↓
+FaceMapping (if needed)
+    ↓
+CAD Operations
+    ↓
+FilletBuilder (if requested)
+    ↓
+Success / Rollback
+```
+
+---
+
 #### Future Enhancements (Not Yet Implemented)
 
 **Rectangular (Non-Square) Plates:**

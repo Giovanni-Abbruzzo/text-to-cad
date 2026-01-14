@@ -23,7 +23,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, validator
+from pydantic import BaseModel, validator, Field
 from typing import Dict, Optional, Union, List, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
@@ -166,13 +166,14 @@ class InstructionRequest(BaseModel):
         Raises:
             ValueError: If instruction is blank, too short, or only whitespace
         """
-        if not v or not v.strip():
-            raise ValueError("Instruction cannot be blank or empty")
-        
-        if len(v.strip()) < 3:
-            raise ValueError("Instruction must be at least 3 characters long")
-            
-        return v.strip()
+        if not v:
+            raise ValueError("Instruction cannot be empty.")
+
+        cleaned = v.strip()
+        if len(cleaned) < 3:
+            raise ValueError("Instruction cannot be empty.")
+
+        return cleaned
 
 
 class PatternInfo(BaseModel):
@@ -182,6 +183,7 @@ class PatternInfo(BaseModel):
     type: Optional[str] = None  # "circular" or "linear"
     count: Optional[int] = None
     angle_deg: Optional[float] = None
+    radius_mm: Optional[float] = None
 
 class ParsedParameters(BaseModel):
     """
@@ -196,6 +198,14 @@ class ParsedParameters(BaseModel):
         shape (Optional[str]): Shape type if applicable (cylinder, block, sphere, etc.) - null if not detected
         height_mm (Optional[float]): Height dimension in millimeters - null if not detected
         diameter_mm (Optional[float]): Diameter dimension in millimeters - null if not detected
+        width_mm (Optional[float]): Width dimension in millimeters - null if not detected
+        length_mm (Optional[float]): Length dimension in millimeters - null if not detected
+        depth_mm (Optional[float]): Depth dimension in millimeters - null if not detected
+        radius_mm (Optional[float]): Radius dimension in millimeters - null if not detected
+        angle_deg (Optional[float]): Angle dimension in degrees - null if not detected
+        draft_angle_deg (Optional[float]): Draft angle in degrees - null if not detected
+        draft_outward (Optional[bool]): Draft direction flag (true = outward, false = inward) - null if not detected
+        flip_direction (Optional[bool]): Flip extrusion/cut direction - null if not detected
         count (Optional[int]): Count for patterns or arrays - null if not detected
         pattern (Optional[PatternInfo]): Pattern information if applicable - null if not detected
     """
@@ -203,6 +213,14 @@ class ParsedParameters(BaseModel):
     shape: Optional[str] = None
     height_mm: Optional[float] = None
     diameter_mm: Optional[float] = None
+    width_mm: Optional[float] = None
+    length_mm: Optional[float] = None
+    depth_mm: Optional[float] = None
+    radius_mm: Optional[float] = None
+    angle_deg: Optional[float] = None
+    draft_angle_deg: Optional[float] = None
+    draft_outward: Optional[bool] = None
+    flip_direction: Optional[bool] = None
     count: Optional[int] = None
     pattern: Optional[PatternInfo] = None
 
@@ -226,7 +244,7 @@ class InstructionResponse(BaseModel):
     source: str  # "ai" or "rule"
     plan: List[str]
     parsed_parameters: Dict
-    operations: List[Dict] = []  # New field for multi-operation support
+    operations: List[Dict] = Field(default_factory=list)  # New field for multi-operation support
 
 
 class CommandResponse(BaseModel):
@@ -275,156 +293,391 @@ class CommandOut(BaseModel):
 
 
 # Parsing Logic
+SCHEMA_VERSION = "1.0"
+
+_UNIT_TO_MM = {
+    "mm": 1.0,
+    "millimeter": 1.0,
+    "millimeters": 1.0,
+    "cm": 10.0,
+    "centimeter": 10.0,
+    "centimeters": 10.0,
+    "m": 1000.0,
+    "meter": 1000.0,
+    "meters": 1000.0,
+    "in": 25.4,
+    "inch": 25.4,
+    "inches": 25.4,
+}
+
+
+def _to_mm(value: float, unit: Optional[str]) -> float:
+    if not unit:
+        return value
+    return value * _UNIT_TO_MM.get(unit.lower(), 1.0)
+
+
+def _coerce_float(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_int(value: Any) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(float(value.strip()))
+        except ValueError:
+            return None
+    return None
+
+
+def _coerce_bool(value: Any) -> Optional[bool]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        if value in (0, 1):
+            return bool(value)
+        return None
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in ("true", "yes", "y", "1", "on"):
+            return True
+        if lowered in ("false", "no", "n", "0", "off"):
+            return False
+    return None
+
+
+def _normalize_pattern(pattern: Any, fallback_count: Optional[int]) -> Optional[Dict[str, Optional[Union[str, int, float]]]]:
+    if pattern is None:
+        return None
+    if isinstance(pattern, PatternInfo):
+        pattern = pattern.dict()
+    if not isinstance(pattern, dict):
+        return None
+
+    pattern_type = pattern.get("type")
+    if isinstance(pattern_type, str):
+        pattern_type = pattern_type.strip().lower() or None
+    else:
+        pattern_type = None
+
+    pattern_count = _coerce_int(pattern.get("count"))
+    if pattern_count is None:
+        pattern_count = fallback_count
+
+    angle_deg = _coerce_float(pattern.get("angle_deg"))
+    radius_mm = _coerce_float(pattern.get("radius_mm"))
+
+    if not any([pattern_type, pattern_count, angle_deg, radius_mm]):
+        return None
+
+    return {
+        "type": pattern_type,
+        "count": pattern_count,
+        "angle_deg": angle_deg,
+        "radius_mm": radius_mm,
+    }
+
+
+def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
+    if not isinstance(raw_params, dict):
+        raw_params = {}
+
+    shape = raw_params.get("shape")
+    if isinstance(shape, str):
+        shape = shape.strip().lower() or None
+    else:
+        shape = None
+
+    count = _coerce_int(raw_params.get("count"))
+    diameter_mm = _coerce_float(raw_params.get("diameter_mm"))
+    height_mm = _coerce_float(raw_params.get("height_mm"))
+    width_mm = _coerce_float(raw_params.get("width_mm"))
+    length_mm = _coerce_float(raw_params.get("length_mm"))
+    depth_mm = _coerce_float(raw_params.get("depth_mm"))
+    radius_mm = _coerce_float(raw_params.get("radius_mm"))
+    angle_deg = _coerce_float(raw_params.get("angle_deg"))
+    draft_angle_deg = _coerce_float(raw_params.get("draft_angle_deg"))
+    draft_outward = _coerce_bool(raw_params.get("draft_outward"))
+    flip_direction = _coerce_bool(raw_params.get("flip_direction"))
+
+    if draft_angle_deg is not None and draft_angle_deg <= 0:
+        draft_angle_deg = None
+
+    if diameter_mm is None and radius_mm is not None:
+        diameter_mm = radius_mm * 2.0
+
+    pattern = _normalize_pattern(raw_params.get("pattern"), count)
+
+    return {
+        "count": count,
+        "diameter_mm": diameter_mm,
+        "height_mm": height_mm,
+        "width_mm": width_mm,
+        "length_mm": length_mm,
+        "depth_mm": depth_mm,
+        "radius_mm": radius_mm,
+        "angle_deg": angle_deg,
+        "draft_angle_deg": draft_angle_deg,
+        "draft_outward": draft_outward,
+        "flip_direction": flip_direction,
+        "shape": shape,
+        "pattern": pattern,
+    }
+
+
+def _has_any_parameter(params: Any) -> bool:
+    if not isinstance(params, dict):
+        return False
+
+    for key, value in params.items():
+        if key == "pattern":
+            if isinstance(value, dict):
+                for nested_value in value.values():
+                    if nested_value is not None:
+                        return True
+            elif value is not None:
+                return True
+        else:
+            if value is not None:
+                return True
+
+    return False
+
+
+def normalize_parsed_result(raw_result: Any) -> Dict[str, Any]:
+    if not isinstance(raw_result, dict):
+        raise ValueError("Parsed result must be a dictionary")
+
+    action = raw_result.get("action")
+    if not isinstance(action, str) or not action.strip():
+        raise ValueError("Parsed result missing action")
+    action = action.strip().lower()
+    allowed_actions = {"create_hole", "extrude", "fillet", "pattern", "create_feature", "chamfer"}
+    if action not in allowed_actions:
+        action = "create_feature"
+
+    normalized_params = _normalize_parameters(raw_result.get("parameters"))
+
+    return {
+        "action": action,
+        "parameters": normalized_params,
+    }
+
+
+def split_instruction_into_operations(text: str) -> List[str]:
+    if not text:
+        return []
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    instruction_lines = []
+
+    for line in lines:
+        parts = re.split(r"\s+(?=create\s)", line, flags=re.IGNORECASE)
+        for part in parts:
+            sub_parts = re.split(r"\s+(?:and|then)\s+(?=(?:add|create|apply)\s)", part, flags=re.IGNORECASE)
+            instruction_lines.extend([p.strip() for p in sub_parts if p.strip()])
+
+    return instruction_lines if instruction_lines else [text.strip()]
+
+
 def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
     """
     Generate a human-readable plan from parsed CAD parameters.
-    
+
     Converts structured parameters into descriptive action steps that explain
     what the CAD operation will do. Useful for preview/dry-run scenarios.
-    
-    Args:
-        parsed_result (dict): Parsed result with 'action' and 'parameters' keys
-        
-    Returns:
-        List[str]: List of human-readable plan steps
-        
-    Example:
-        Input: {"action": "create_hole", "parameters": {"diameter_mm": 6, "count": 4}}
-        Output: ["Create 4 holes with Ø6 mm diameter"]
     """
     action = parsed_result.get("action", "unknown")
-    params = parsed_result.get("parameters", {})
+    params = parsed_result.get("parameters") or {}
     plan = []
-    
+
     # Extract common parameters
     shape = params.get("shape")
     diameter_mm = params.get("diameter_mm")
     height_mm = params.get("height_mm")
+    width_mm = params.get("width_mm")
+    length_mm = params.get("length_mm")
+    depth_mm = params.get("depth_mm")
+    radius_mm = params.get("radius_mm")
+    angle_deg = params.get("angle_deg")
+    draft_angle_deg = params.get("draft_angle_deg")
+    draft_outward = params.get("draft_outward")
+    flip_direction = params.get("flip_direction")
     count = params.get("count")
-    pattern = params.get("pattern")
-    
+    pattern = params.get("pattern") or {}
+
+    def _describe_block(base_label: str) -> str:
+        dims = []
+        block_height = height_mm or depth_mm
+        if length_mm and width_mm and block_height:
+            dims.append(f"{length_mm} x {width_mm} x {block_height} mm")
+        elif length_mm and width_mm:
+            dims.append(f"{length_mm} x {width_mm} mm")
+        elif width_mm:
+            dims.append(f"{width_mm} mm wide")
+        elif diameter_mm:
+            dims.append(f"{diameter_mm} mm")
+
+        if not dims and block_height:
+            dims.append(f"{block_height} mm tall")
+
+        return f"{base_label} {' '.join(dims)}".strip()
+
+    def _describe_cylinder(base_label: str) -> str:
+        desc = base_label
+        if diameter_mm:
+            desc += f" diameter {diameter_mm} mm"
+        elif radius_mm:
+            desc += f" radius {radius_mm} mm"
+        if height_mm:
+            desc += f" height {height_mm} mm"
+        return desc
+
+    def _describe_hole(base_label: str) -> str:
+        desc = base_label
+        if diameter_mm:
+            desc += f" diameter {diameter_mm} mm"
+        elif radius_mm:
+            desc += f" radius {radius_mm} mm"
+        hole_depth = depth_mm or height_mm
+        if hole_depth:
+            desc += f" depth {hole_depth} mm"
+        return desc
+
     # Generate plan based on action type
     if action == "extrude":
         if shape == "cylinder":
-            desc = "Extrude cylinder"
-            if diameter_mm:
-                desc += f" Ø{diameter_mm} mm"
-            if height_mm:
-                desc += f" × {height_mm} mm height"
-            plan.append(desc)
-        elif shape == "block":
-            desc = "Extrude rectangular block"
-            if diameter_mm:  # Using diameter as width for blocks
-                desc += f" {diameter_mm} mm wide"
-            if height_mm:
-                desc += f" × {height_mm} mm height"
-            plan.append(desc)
+            plan.append(_describe_cylinder("Extrude cylinder"))
+        elif shape in ["block", "cube", "base_plate"]:
+            plan.append(_describe_block("Extrude rectangular block"))
         else:
             desc = "Extrude feature"
             if height_mm:
                 desc += f" {height_mm} mm height"
             plan.append(desc)
-    
+
     elif action == "create_hole":
         desc = "Create"
         if count and count > 1:
             desc += f" {count} holes"
         else:
             desc += " hole"
-        if diameter_mm:
-            desc += f" Ø{diameter_mm} mm"
+        desc = _describe_hole(desc)
         plan.append(desc)
-        
+
         # Add pattern information if present
-        if pattern and pattern.get("type"):
-            pattern_type = pattern.get("type")
-            pattern_count = pattern.get("count", count)
-            if pattern_type == "circular":
-                pattern_desc = f"Arrange in circular pattern"
-                if pattern_count:
-                    pattern_desc += f" ({pattern_count} instances)"
-                if pattern.get("angle_deg"):
-                    pattern_desc += f" at {pattern.get('angle_deg')}° spacing"
-                plan.append(pattern_desc)
-            elif pattern_type == "linear":
-                pattern_desc = f"Arrange in linear pattern"
-                if pattern_count:
-                    pattern_desc += f" ({pattern_count} instances)"
-                plan.append(pattern_desc)
-    
+        pattern_type = pattern.get("type")
+        pattern_count = pattern.get("count", count)
+        if pattern_type:
+            pattern_desc = f"Arrange in {pattern_type} pattern"
+            if pattern_count:
+                pattern_desc += f" ({pattern_count} instances)"
+            if pattern.get("angle_deg"):
+                pattern_desc += f" at {pattern.get('angle_deg')} deg spacing"
+            if pattern.get("radius_mm"):
+                pattern_desc += f" on {pattern.get('radius_mm')} mm radius"
+            plan.append(pattern_desc)
+
     elif action == "pattern":
         desc = "Create pattern"
         if count:
             desc += f" of {count} features"
-        if pattern and pattern.get("type"):
+        if pattern.get("type"):
             desc += f" in {pattern.get('type')} arrangement"
+        if pattern.get("angle_deg"):
+            desc += f" over {pattern.get('angle_deg')} deg"
+        if pattern.get("radius_mm"):
+            desc += f" radius {pattern.get('radius_mm')} mm"
         plan.append(desc)
-    
+
     elif action == "fillet":
         desc = "Apply fillet"
-        if diameter_mm:  # Using diameter as radius for fillets
-            desc += f" with {diameter_mm/2} mm radius"
+        fillet_radius = radius_mm or diameter_mm
+        if fillet_radius:
+            desc += f" with {fillet_radius} mm radius"
         plan.append(desc)
-    
+
+    elif action == "chamfer":
+        desc = "Apply chamfer"
+        if width_mm:
+            desc += f" {width_mm} mm"
+        if angle_deg:
+            desc += f" at {angle_deg} deg"
+        plan.append(desc)
+
     elif action == "create_feature":
-        # Generic feature creation
         if shape == "cylinder":
-            desc = "Create cylinder"
-            if diameter_mm:
-                desc += f" Ø{diameter_mm} mm"
-            if height_mm:
-                desc += f" × {height_mm} mm height"
-            plan.append(desc)
-        elif shape == "base_plate":
-            desc = "Create base plate"
-            if diameter_mm:  # Using diameter as size for square plates
-                desc += f" {diameter_mm} mm"
-            if height_mm:
-                desc += f" × {height_mm} mm thick"
-            plan.append(desc)
+            plan.append(_describe_cylinder("Create cylinder"))
+        elif shape in ["base_plate", "block", "cube"]:
+            base_label = "Create base plate" if shape == "base_plate" else "Create block"
+            plan.append(_describe_block(base_label))
         elif shape == "hole":
             desc = "Create"
             if count and count > 1:
                 desc += f" {count} holes"
             else:
                 desc += " hole"
-            if diameter_mm:
-                desc += f" Ø{diameter_mm} mm"
-            if pattern and pattern.get("type"):
+            desc = _describe_hole(desc)
+            if pattern.get("type"):
                 desc += f" in {pattern.get('type')} pattern"
             plan.append(desc)
         elif shape:
             desc = f"Create {shape}"
             if diameter_mm:
-                desc += f" {diameter_mm} mm"
+                desc += f" diameter {diameter_mm} mm"
             if height_mm:
-                desc += f" × {height_mm} mm"
+                desc += f" height {height_mm} mm"
             plan.append(desc)
         else:
-            # Check if it's a plate with holes pattern
             if count and count > 1:
-                desc = f"Create base plate"
+                desc = "Create base plate"
                 if height_mm:
                     desc += f" {height_mm} mm thick"
                 plan.append(desc)
-                
-                hole_desc = f"Pattern {count} holes"
-                if diameter_mm:
-                    hole_desc += f" Ø{diameter_mm} mm"
-                if pattern and pattern.get("type"):
+
+                hole_desc = _describe_hole(f"Pattern {count} holes")
+                if pattern.get("type"):
                     hole_desc += f" in {pattern.get('type')} arrangement"
                 plan.append(hole_desc)
             else:
                 plan.append("Create CAD feature")
-    
+
     else:
         plan.append(f"Execute {action} operation")
-    
-    # If no plan was generated, provide a fallback
+
     if not plan:
         plan.append("Process CAD instruction")
-    
+
+    if flip_direction:
+        plan.append("Flip direction of operation")
+
+    if draft_angle_deg:
+        draft_desc = f"Apply draft angle {draft_angle_deg} deg"
+        if draft_outward is True:
+            draft_desc += " outward"
+        elif draft_outward is False:
+            draft_desc += " inward"
+        plan.append(draft_desc)
+
     return plan
+
 
 
 def parse_instruction_internal(text: str, use_ai: bool) -> dict:
@@ -450,12 +703,17 @@ def parse_instruction_internal(text: str, use_ai: bool) -> dict:
                 "result": {
                     "action": str,
                     "parameters": {
-                        "count": Optional[int],
-                        "diameter_mm": Optional[float],
-                        "height_mm": Optional[float],
-                        "shape": Optional[str],
-                        "pattern": Optional[dict]
-                    }
+                    "count": Optional[int],
+                    "diameter_mm": Optional[float],
+                    "height_mm": Optional[float],
+                    "width_mm": Optional[float],
+                    "length_mm": Optional[float],
+                    "depth_mm": Optional[float],
+                    "radius_mm": Optional[float],
+                    "angle_deg": Optional[float],
+                    "shape": Optional[str],
+                    "pattern": Optional[dict]
+                }
                 },
                 "source": str  # "ai" or "rule"
             }
@@ -470,11 +728,20 @@ def parse_instruction_internal(text: str, use_ai: bool) -> dict:
         try:
             logger.info("Attempting AI parsing with OpenAI")
             parsed_result = parse_instruction_with_ai(text)
+            parsed_result = normalize_parsed_result(parsed_result)
             source = "ai"
-            logger.info(f"AI parsing successful: {parsed_result}")
+            if not _has_any_parameter(parsed_result.get("parameters")):
+                logger.warning("AI parsing returned empty parameters; falling back to rule-based parsing")
+                parsed_result = None
+                source = "rule"
+            else:
+                logger.info(f"AI parsing successful: {parsed_result}")
         except LLMParseError as e:
             logger.warning(f"AI parsing failed, falling back to rules: {e}")
             parsed_result = None  # Will trigger fallback
+        except ValueError as e:
+            logger.warning(f"AI parsing returned invalid structure, falling back to rules: {e}")
+            parsed_result = None
         except Exception as e:
             logger.error(f"Unexpected error in AI parsing, falling back to rules: {e}")
             parsed_result = None  # Will trigger fallback
@@ -487,17 +754,11 @@ def parse_instruction_internal(text: str, use_ai: bool) -> dict:
         parsed_params = parse_cad_instruction(text)
         source = "rule"
         
-        # Convert rule-based result to normalized format
-        parsed_result = {
+        raw_result = {
             "action": parsed_params.action,
-            "parameters": {
-                "count": parsed_params.count,
-                "diameter_mm": parsed_params.diameter_mm,
-                "height_mm": parsed_params.height_mm,
-                "shape": parsed_params.shape,  # Always include shape field (null if not detected)
-                "pattern": parsed_params.pattern.dict() if parsed_params.pattern else None
-            }
+            "parameters": parsed_params.dict(exclude={"action"}),
         }
+        parsed_result = normalize_parsed_result(raw_result)
     
     # Log parsing results
     logger.info(f"Parsing complete - Source: {source}, Action: {parsed_result.get('action')}, "
@@ -512,114 +773,171 @@ def parse_instruction_internal(text: str, use_ai: bool) -> dict:
 def parse_cad_instruction(instruction: str) -> ParsedParameters:
     """
     Parse natural language CAD instruction into structured parameters.
-    
-    This function uses naive keyword detection and regex pattern matching
+
+    This function uses keyword detection and regex pattern matching
     to extract CAD parameters from natural language text. It includes
     safe fallbacks for unrecognized patterns.
-    
+
     Parsing Assumptions:
     - Actions are detected by keywords (extrude, hole, fillet, pattern, create)
     - Shapes are detected by common geometric terms
     - Dimensions are extracted using regex for "number + unit" patterns
     - Default action is "create_feature" if no specific action is detected
     - Units are assumed to be millimeters if not specified
-    
+
     Args:
         instruction (str): Natural language instruction
-        
+
     Returns:
         ParsedParameters: Structured parameters extracted from instruction
     """
     instruction_lower = instruction.lower().strip()
-    
+
     # Action detection with keyword matching
     action = "create_feature"  # Safe fallback
-    if any(word in instruction_lower for word in ["extrude", "extrusion"]):
-        action = "extrude"
-    elif any(word in instruction_lower for word in ["hole", "drill", "bore"]):
-        action = "create_hole"
-    elif any(word in instruction_lower for word in ["fillet", "round", "radius"]):
+    if "chamfer" in instruction_lower:
+        action = "chamfer"
+    elif "fillet" in instruction_lower or "round over" in instruction_lower or "rounding" in instruction_lower:
         action = "fillet"
-    elif any(word in instruction_lower for word in ["pattern", "array", "repeat"]):
+    elif any(word in instruction_lower for word in ["hole", "drill", "bore", "counterbore", "countersink"]):
+        action = "create_hole"
+    elif any(word in instruction_lower for word in ["pattern", "array", "repeat", "bolt circle", "bolt pattern", "pcd"]):
         action = "pattern"
-    
+    elif any(word in instruction_lower for word in ["extrude", "extrusion", "boss"]):
+        action = "extrude"
+
     # Shape detection
     shape = None
-    if any(word in instruction_lower for word in ["cylinder", "cylindrical", "round"]):
+    if any(word in instruction_lower for word in ["cylinder", "cylindrical", "tube", "pipe"]):
         shape = "cylinder"
-    elif any(word in instruction_lower for word in ["plate", "base plate", "base", "block", "box", "cube", "rectangular"]):
+    elif "cube" in instruction_lower:
+        shape = "cube"
+    elif any(word in instruction_lower for word in ["block", "box", "rectangular", "rectangle", "prism"]):
+        shape = "block"
+    elif any(word in instruction_lower for word in ["plate", "base plate", "baseplate", "base"]):
         shape = "base_plate"
     elif any(word in instruction_lower for word in ["sphere", "ball", "spherical"]):
         shape = "sphere"
-    elif any(word in instruction_lower for word in ["hole", "holes"]):
+    elif "hole" in instruction_lower:
         shape = "hole"
-    
+    elif "fillet" in instruction_lower:
+        shape = "fillet"
+    elif "chamfer" in instruction_lower:
+        shape = "chamfer"
+
+    value_unit = r"(?P<value>[0-9]*\.?[0-9]+)\s*(?P<unit>mm|millimeter|millimeters|cm|centimeter|centimeters|m|meter|meters|in|inch|inches)?"
+
+    def extract_dim(keywords):
+        if not keywords:
+            return None
+        keyword_pattern = "|".join(re.escape(k) for k in keywords)
+        patterns = [
+            rf"(?:{keyword_pattern})\s*(?:of\s*)?{value_unit}",
+            rf"{value_unit}\s*(?:{keyword_pattern})(?:\b|$)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, instruction_lower)
+            if match:
+                raw_value = match.group("value")
+                raw_unit = match.group("unit")
+                try:
+                    return _to_mm(float(raw_value), raw_unit)
+                except ValueError:
+                    return None
+        return None
+
+    def extract_angle():
+        patterns = [
+            r"(?P<value>[0-9]*\.?[0-9]+)\s*(?:degree|degrees|deg)\b",
+            r"(?:angle|rotation|span)\s*(?:of\s*)?(?P<value>[0-9]*\.?[0-9]+)",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, instruction_lower)
+            if match:
+                try:
+                    return float(match.group("value"))
+                except ValueError:
+                    return None
+        return None
+
+    def extract_named_angle(keywords):
+        if not keywords:
+            return None
+        keyword_pattern = "|".join(re.escape(k) for k in keywords)
+        patterns = [
+            rf"(?:{keyword_pattern})\s*(?:angle\s*)?(?:of\s*)?(?P<value>[0-9]*\.?[0-9]+)\s*(?:degree|degrees|deg)\b",
+            rf"(?P<value>[0-9]*\.?[0-9]+)\s*(?:degree|degrees|deg)\s*(?:{keyword_pattern})\b",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, instruction_lower)
+            if match:
+                try:
+                    return float(match.group("value"))
+                except ValueError:
+                    return None
+        return None
+
     # Dimension extraction using regex patterns
-    # Pattern: number followed by optional unit (mm, millimeter, etc.)
-    # NOTE: All dimensions are stored with *_mm suffix to indicate millimeters as default unit
-    # This is our standard convention - dimensions are always in millimeters
-    
-    # Height extraction (height, tall, length, depth, thickness)
-    # IMPORTANT: Order matters! More specific patterns first.
-    height_mm = None
-    height_patterns = [
-        # Pattern 1: Height keyword followed by number (most explicit)
-        # Examples: "height 50mm", "tall 30", "depth of 25mm", "thickness 6mm"
-        r'(?:height|tall|length|depth|thickness|thick)\s+(?:of\s+)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
-        
-        # Pattern 2: Number directly before height keyword with optional "mm"
-        # Examples: "50mm tall", "30 high", "25mm height", "6mm thick"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:tall|high|long|deep|thick|thickness)(?:\s|$)',
-    ]
-    
-    for pattern in height_patterns:
-        match = re.search(pattern, instruction_lower)
-        if match:
-            try:
-                height_mm = float(match.group(1))
-                break
-            except (ValueError, IndexError):
-                continue
-    
-    # Diameter extraction
-    # IMPORTANT: Order matters! More specific patterns first.
-    diameter_mm = None
-    diameter_patterns = [
-        # Pattern 1: Number directly before "diameter/dia/width/wide" with optional "mm"
-        # Examples: "25mm diameter", "30 diameter", "20mm wide"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:diameter|dia|width|wide)(?:\s|$)',
-        
-        # Pattern 2: "diameter/dia/width/wide" followed by number
-        # Examples: "diameter 25mm", "width of 30mm"
-        r'(?:diameter|dia|width|wide)\s*(?:of\s*)?([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?',
-        
-        # Pattern 3: Number before shape name (cylinder, sphere, plate) - implies diameter/size
-        # Examples: "15mm cylinder", "20 sphere", "80mm plate"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:cylinder|sphere|pipe|tube|plate|base)(?:\s|$)',
-        
-        # Pattern 4: "across" or "around" (typically indicates diameter)
-        # Examples: "25mm across", "30 around"
-        r'([0-9]*\.?[0-9]+)\s*(?:mm|millimeter|millimeters)?\s+(?:across|around)(?:\s|$)'
-    ]
-    
-    for pattern in diameter_patterns:
-        match = re.search(pattern, instruction_lower)
-        if match:
-            try:
-                diameter_mm = float(match.group(1))
-                break
-            except (ValueError, IndexError):
-                continue
-    
+    height_mm = extract_dim(["height", "tall", "high", "thickness", "thick"])
+    depth_mm = extract_dim(["depth", "deep"])
+    width_mm = extract_dim(["width", "wide"])
+    length_mm = extract_dim(["length", "long"])
+    diameter_mm = extract_dim(["diameter", "dia", "phi"])
+    radius_mm = extract_dim(["radius", "rad"])
+    size_mm = extract_dim(["size", "side", "edge"])
+    angle_deg = extract_angle()
+    draft_angle_deg = extract_named_angle(["draft", "taper"])
+
+    draft_outward = None
+    if draft_angle_deg is not None:
+        if re.search(r"\b(outward|outside|taper out|flare)\b", instruction_lower):
+            draft_outward = True
+        elif re.search(r"\b(inward|inside|taper in)\b", instruction_lower):
+            draft_outward = False
+
+    flip_direction = None
+    if re.search(r"\b(flip|reverse|opposite)\b", instruction_lower):
+        if "direction" in instruction_lower or "extrude" in instruction_lower or "cut" in instruction_lower:
+            flip_direction = True
+
+    # Dimension triplets like 100x50x10 mm
+    dim_token = r"([0-9]*\.?[0-9]+)\s*(mm|millimeter|millimeters|cm|centimeter|centimeters|m|meter|meters|in|inch|inches)?"
+    dim_pattern = rf"{dim_token}\s*(?:x|by)\s*{dim_token}(?:\s*(?:x|by)\s*{dim_token})?"
+    dim_match = re.search(dim_pattern, instruction_lower)
+    if dim_match and shape in [None, "block", "base_plate", "cube"]:
+        v1, u1, v2, u2, v3, u3 = dim_match.groups()
+        try:
+            dim1 = _to_mm(float(v1), u1)
+            dim2 = _to_mm(float(v2), u2)
+            dim3 = _to_mm(float(v3), u3) if v3 else None
+        except ValueError:
+            dim1 = dim2 = dim3 = None
+
+        if dim1 is not None and length_mm is None:
+            length_mm = dim1
+        if dim2 is not None and width_mm is None:
+            width_mm = dim2
+        if dim3 is not None and height_mm is None:
+            height_mm = dim3
+
+    # Apply size for square/cube shorthand
+    if size_mm and shape in ["cube", "block", "base_plate"]:
+        if width_mm is None:
+            width_mm = size_mm
+        if length_mm is None:
+            length_mm = size_mm
+        if shape == "cube" and height_mm is None:
+            height_mm = size_mm
+
     # Count extraction for patterns/arrays
     count = None
     count_patterns = [
-        r'(?:count|number|qty|quantity)\s*(?:of\s*)?([0-9]+)',
-        r'([0-9]+)\s*(?:times|copies|instances)',
-        r'(?:make|create)\s*([0-9]+)',
-        r'([0-9]+)\s*(?:cylinder|cylinders|block|blocks|sphere|spheres|cone|cones|hole|holes|feature|features)'
+        r"(?:count|number|qty|quantity)\s*(?:of\s*)?([0-9]+)",
+        r"([0-9]+)\s*(?:times|copies|instances)",
+        r"(?:make|create|add|cut)\s*([0-9]+)",
+        r"([0-9]+)\s*(?:cylinder|cylinders|block|blocks|cube|cubes|plate|plates|hole|holes|feature|features)",
     ]
-    
+
     for pattern in count_patterns:
         match = re.search(pattern, instruction_lower)
         if match:
@@ -628,53 +946,61 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
                 break
             except (ValueError, IndexError):
                 continue
-    
+
     # Pattern extraction
+    pattern_type = None
+    if any(word in instruction_lower for word in ["circular", "circle", "around", "radial", "bolt circle", "bolt pattern", "pcd"]):
+        pattern_type = "circular"
+    elif any(word in instruction_lower for word in ["linear", "line", "row", "grid"]):
+        pattern_type = "linear"
+
+    if pattern_type is None and action == "create_hole" and count and count > 1:
+        pattern_type = "circular"
+
+    pattern_angle = extract_angle() if pattern_type == "circular" else None
+
+    pattern_radius_mm = extract_dim(["pattern radius", "bolt circle radius", "bolt-circle radius"])
+    if pattern_radius_mm is None:
+        bolt_match = re.search(rf"(?:bolt\s*circle|bolt\s*pattern|pcd)\s*(?:diameter|dia)?\s*(?:of\s*)?{value_unit}", instruction_lower)
+        if bolt_match:
+            try:
+                bolt_value = float(bolt_match.group("value"))
+                bolt_unit = bolt_match.group("unit")
+                bolt_mm = _to_mm(bolt_value, bolt_unit)
+                if "radius" in bolt_match.group(0):
+                    pattern_radius_mm = bolt_mm
+                else:
+                    pattern_radius_mm = bolt_mm / 2.0
+            except ValueError:
+                pattern_radius_mm = None
+
     pattern_info = None
-    if action == "pattern":
-        pattern_type = None
-        pattern_count = count  # Use the count we already extracted
-        pattern_angle = None
-        
-        # Detect pattern type
-        if any(word in instruction_lower for word in ["circle", "circular", "round", "around"]):
-            pattern_type = "circular"
-        elif any(word in instruction_lower for word in ["line", "linear", "row", "straight"]):
-            pattern_type = "linear"
-        
-        # Extract angle for circular patterns
-        if pattern_type == "circular":
-            angle_patterns = [
-                r'([0-9]*\.?[0-9]+)\s*(?:degree|degrees|deg|°)',
-                r'(?:angle|rotation)\s*(?:of\s*)?([0-9]*\.?[0-9]+)'
-            ]
-            for angle_pattern in angle_patterns:
-                match = re.search(angle_pattern, instruction_lower)
-                if match:
-                    try:
-                        pattern_angle = float(match.group(1))
-                        break
-                    except (ValueError, IndexError):
-                        continue
-        
-        # Create pattern info if we detected a pattern type
-        if pattern_type:
-            pattern_info = PatternInfo(
-                type=pattern_type,
-                count=pattern_count,
-                angle_deg=pattern_angle
-            )
-    
-    # Always return consistent structure with all fields present
-    # Missing/undetected values are explicitly set to None for consistent JSON shape
+    if pattern_type or pattern_angle or pattern_radius_mm:
+        pattern_info = PatternInfo(
+            type=pattern_type,
+            count=count,
+            angle_deg=pattern_angle,
+            radius_mm=pattern_radius_mm,
+        )
+
     return ParsedParameters(
         action=action,
         shape=shape,
-        height_mm=height_mm,  # Always in millimeters (documented by *_mm suffix)
-        diameter_mm=diameter_mm,  # Always in millimeters (documented by *_mm suffix)
+        height_mm=height_mm,
+        diameter_mm=diameter_mm,
+        width_mm=width_mm,
+        length_mm=length_mm,
+        depth_mm=depth_mm,
+        radius_mm=radius_mm,
+        angle_deg=angle_deg,
+        draft_angle_deg=draft_angle_deg,
+        draft_outward=draft_outward,
+        flip_direction=flip_direction,
         count=count,
-        pattern=pattern_info
+        pattern=pattern_info,
     )
+
+
 
 
 @app.post("/process_instruction")
@@ -690,23 +1016,6 @@ async def process_instruction(request: InstructionRequest, db: Session = Depends
     - If use_ai=True and OPENAI_API_KEY is set: attempts AI parsing via OpenAI
     - If AI fails or use_ai=False: falls back to rule-based parsing
     - Always returns consistent response format with source indication
-    
-    Validation:Prompt S8-B (endpoint)
-
-Add POST /generate_model with body:
-
-{ "instruction": "...", "use_ai": false, "export_step": true, "export_stl": false }
-
-
-Steps:
-
-Parse via parse_instruction_internal.
-
-dispatch_build(action, params) → CadQuery solid.
-
-Export STEP/STL based on flags; return { step_url, stl_url, summary }.
-
-Mount /outputs if not already.
     - Instructions must be at least 3 characters long and non-empty
     - Returns 422 with clear error message for invalid instructions
     
@@ -744,23 +1053,8 @@ Mount /outputs if not already.
     logger.info(f"Processing instruction: '{request.instruction}' (use_ai={request.use_ai})")
     
     try:
-        # Split instruction into multiple operations
-        # Supports both newline-separated AND same-line multiple commands
-        # Examples: 
-        #   "create base plate\ncreate cylinder" -> 2 operations
-        #   "create base plate create cylinder" -> 2 operations
-        
-        # First split by newlines
-        lines = [line.strip() for line in request.instruction.split('\n') if line.strip()]
-        
-        # Then split each line by multiple "create" keywords
-        instruction_lines = []
-        for line in lines:
-            # Use regex to split on "create" while keeping it
-            # Pattern: split before "create" (case-insensitive) when not at start
-            import re
-            parts = re.split(r'\s+(?=create\s)', line, flags=re.IGNORECASE)
-            instruction_lines.extend([p.strip() for p in parts if p.strip()])
+        # Split instruction into multiple operations (newline or multi-command lines)
+        instruction_lines = split_instruction_into_operations(request.instruction)
         
         if len(instruction_lines) > 1:
             logger.info(f"Multi-line instruction detected: {len(instruction_lines)} operations")
@@ -808,7 +1102,7 @@ Mount /outputs if not already.
         
         # Create normalized response
         response = InstructionResponse(
-            schema_version="1.0",
+            schema_version=SCHEMA_VERSION,
             instruction=request.instruction,
             source=overall_source,
             plan=all_plan_steps,
@@ -885,23 +1179,36 @@ async def dry_run_instruction(request: InstructionRequest) -> InstructionRespons
     
     try:
         # Parse instruction using the shared helper (no database interaction)
-        parse_result = parse_instruction_internal(request.instruction, request.use_ai)
-        parsed_result = parse_result["result"]
-        source = parse_result["source"]
-        
-        # Generate human-readable plan
-        plan = generate_plan_from_parsed(parsed_result)
-        
+        instruction_lines = split_instruction_into_operations(request.instruction)
+
+        all_operations = []
+        all_plan_steps = []
+        sources = []
+
+        for i, line in enumerate(instruction_lines, 1):
+            logger.info(f"Dry run parsing operation {i}/{len(instruction_lines)}: '{line}'")
+            parse_result = parse_instruction_internal(line, request.use_ai)
+            parsed_result = parse_result["result"]
+            source = parse_result["source"]
+
+            all_operations.append(parsed_result)
+            sources.append(source)
+            all_plan_steps.extend(generate_plan_from_parsed(parsed_result))
+
+        overall_source = "ai" if "ai" in sources else "rule"
+        first_operation = all_operations[0] if all_operations else {"action": "unknown", "parameters": {}}
+
         # Create response (no database save)
         response = InstructionResponse(
-            schema_version="1.0",
+            schema_version=SCHEMA_VERSION,
             instruction=request.instruction,
-            source=source,
-            plan=plan,
-            parsed_parameters=parsed_result
+            source=overall_source,
+            plan=all_plan_steps,
+            parsed_parameters=first_operation,
+            operations=all_operations,
         )
-        
-        logger.info(f"Dry run complete - Source: {source}, Plan steps: {len(plan)}")
+
+        logger.info(f"Dry run complete - Source: {overall_source}, Plan steps: {len(all_plan_steps)}")
         return response
         
     except Exception as e:
@@ -1066,11 +1373,14 @@ class GenerateModelRequest(BaseModel):
         Raises:
             ValueError: If instruction is blank, too short, or only whitespace
         """
-        if not v or not v.strip():
-            raise ValueError("Instruction cannot be blank")
-        if len(v.strip()) < 3:
-            raise ValueError("Instruction must be at least 3 characters long")
-        return v.strip()
+        if not v:
+            raise ValueError("Instruction cannot be empty.")
+
+        cleaned = v.strip()
+        if len(cleaned) < 3:
+            raise ValueError("Instruction cannot be empty.")
+
+        return cleaned
 
 
 class GenerateModelResponse(BaseModel):

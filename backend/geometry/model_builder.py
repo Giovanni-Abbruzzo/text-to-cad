@@ -46,13 +46,14 @@ def build_plate_with_holes(params: Dict[str, Any]) -> cq.Workplane:
         result = build_plate_with_holes(params)
     """
     # Extract parameters with sensible defaults
-    plate_thickness = params.get("height_mm", 10.0)  # Default 10mm thick
-    hole_diameter = params.get("diameter_mm", 5.0)   # Default 5mm diameter holes
-    hole_count = params.get("count", 4)              # Default 4 holes
-    
+    plate_thickness = params.get("height_mm") or params.get("depth_mm") or 10.0  # Default 10mm thick
+    hole_radius = params.get("radius_mm")
+    hole_diameter = params.get("diameter_mm") or (hole_radius * 2.0 if hole_radius else None) or 5.0
+    hole_count = params.get("count", 4)  # Default 4 holes
+
     # Base plate dimensions (sensible defaults)
-    plate_length = 100.0  # 100mm length
-    plate_width = 80.0    # 80mm width
+    plate_length = params.get("length_mm") or params.get("width_mm") or params.get("diameter_mm") or 100.0
+    plate_width = params.get("width_mm") or params.get("length_mm") or params.get("diameter_mm") or 80.0
     
     logger.info(f"Building plate: {plate_length}x{plate_width}x{plate_thickness}mm with {hole_count} holes of {hole_diameter}mm diameter")
     
@@ -61,15 +62,18 @@ def build_plate_with_holes(params: Dict[str, Any]) -> cq.Workplane:
              .box(plate_length, plate_width, plate_thickness))
     
     # Extract pattern information
-    pattern_info = params.get("pattern", {})
+    pattern_info = params.get("pattern", {}) or {}
     pattern_type = pattern_info.get("type", "circular")
     pattern_count = pattern_info.get("count", hole_count)
+    pattern_radius = pattern_info.get("radius_mm")
+    pattern_angle = pattern_info.get("angle_deg") or 360.0
     
     # Create hole pattern
     if pattern_type == "circular":
         # Circular pattern of holes
-        pattern_radius = min(plate_length, plate_width) * 0.3  # 30% of smaller dimension
-        angle_step = 360.0 / pattern_count
+        if not pattern_radius:
+            pattern_radius = min(plate_length, plate_width) * 0.3  # 30% of smaller dimension
+        angle_step = float(pattern_angle) / max(1, pattern_count)
         
         logger.info(f"Creating circular hole pattern: {pattern_count} holes at radius {pattern_radius}mm")
         
@@ -105,6 +109,18 @@ def build_plate_with_holes(params: Dict[str, Any]) -> cq.Workplane:
     return plate
 
 
+def build_block(params: Dict[str, Any]) -> cq.Workplane:
+    """
+    Build a rectangular block using width/length/height parameters.
+    """
+    width = params.get("width_mm") or params.get("length_mm") or params.get("diameter_mm") or 50.0
+    length = params.get("length_mm") or params.get("width_mm") or params.get("diameter_mm") or 50.0
+    height = params.get("height_mm") or params.get("depth_mm") or 10.0
+
+    logger.info(f"Building block: {length}x{width}x{height}mm")
+    return cq.Workplane("XY").box(length, width, height)
+
+
 def build_extruded_cylinder(params: Dict[str, Any]) -> cq.Workplane:
     """
     Build a cylinder via extrude operation.
@@ -129,7 +145,8 @@ def build_extruded_cylinder(params: Dict[str, Any]) -> cq.Workplane:
         result = build_extruded_cylinder(params)
     """
     # Extract parameters with sensible defaults
-    diameter = params.get("diameter_mm", 20.0)  # Default 20mm diameter
+    radius = params.get("radius_mm")
+    diameter = params.get("diameter_mm") or (radius * 2.0 if radius else None) or 20.0
     height = params.get("height_mm", 30.0)      # Default 30mm height
     radius = diameter / 2.0
     
@@ -178,6 +195,9 @@ def dispatch_build(action: str, params: Dict[str, Any]) -> cq.Workplane:
     if action == "extrude" and shape == "cylinder":
         logger.info("Dispatching to build_extruded_cylinder")
         return build_extruded_cylinder(params)
+    elif action == "extrude" and shape in ["block", "cube", "base_plate"]:
+        logger.info("Dispatching to build_block")
+        return build_block(params)
     
     elif action in ["create_hole", "pattern", "create_feature"] or "hole" in action.lower():
         logger.info("Dispatching to build_plate_with_holes")
@@ -186,6 +206,9 @@ def dispatch_build(action: str, params: Dict[str, Any]) -> cq.Workplane:
     elif shape == "cylinder":
         logger.info("Dispatching to build_extruded_cylinder (shape-based)")
         return build_extruded_cylinder(params)
+    elif shape in ["block", "cube", "base_plate"]:
+        logger.info("Dispatching to build_block (shape-based)")
+        return build_block(params)
     
     else:
         # Default to plate with holes for unrecognized patterns
@@ -238,7 +261,7 @@ def export_stl(workplane: cq.Workplane, filepath: str) -> bool:
 # Example usage and testing
 if __name__ == "__main__":
     # Test the builders with sample parameters
-    
+
     # Test plate with holes
     plate_params = {
         "height_mm": 12.0,
@@ -246,22 +269,22 @@ if __name__ == "__main__":
         "count": 6,
         "pattern": {"type": "circular", "count": 6, "angle_deg": 60.0}
     }
-    
+
     plate = build_plate_with_holes(plate_params)
-    print("✓ Plate with holes created")
-    
+    print("OK: Plate with holes created")
+
     # Test extruded cylinder
     cylinder_params = {
         "diameter_mm": 25.0,
         "height_mm": 40.0
     }
-    
+
     cylinder = build_extruded_cylinder(cylinder_params)
-    print("✓ Extruded cylinder created")
-    
+    print("OK: Extruded cylinder created")
+
     # Test dispatch
     dispatched_plate = dispatch_build("create_feature", plate_params)
     dispatched_cylinder = dispatch_build("extrude", {"shape": "cylinder", **cylinder_params})
-    
-    print("✓ Dispatch system working")
-    print("Model builder module ready for integration!")
+
+    print("OK: Dispatch system working")
+    print("Model builder module ready for integration")

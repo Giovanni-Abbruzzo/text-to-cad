@@ -2,12 +2,12 @@ namespace TextToCad.SolidWorksAddin
 {
     partial class TaskPaneControl
     {
-        /// <summary> 
+        /// <summary>
         /// Required designer variable.
         /// </summary>
         private System.ComponentModel.IContainer components = null;
 
-        /// <summary> 
+        /// <summary>
         /// Clean up any resources being used.
         /// </summary>
         /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
@@ -22,13 +22,14 @@ namespace TextToCad.SolidWorksAddin
 
         #region Component Designer generated code
 
-        /// <summary> 
-        /// Required method for Designer support - do not modify 
+        /// <summary>
+        /// Required method for Designer support - do not modify
         /// the contents of this method with the code editor.
         /// </summary>
         private void InitializeComponent()
         {
             this.lblTitle = new System.Windows.Forms.Label();
+            this.lblVersion = new System.Windows.Forms.Label();
             this.lblInstruction = new System.Windows.Forms.Label();
             this.txtInstruction = new System.Windows.Forms.TextBox();
             this.chkUseAI = new System.Windows.Forms.CheckBox();
@@ -70,25 +71,35 @@ namespace TextToCad.SolidWorksAddin
             this.lblTitle.Text = "Text-to-CAD";
             this.lblTitle.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
+            // lblVersion
+            // 
+            this.lblVersion.AutoSize = true;
+            this.lblVersion.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lblVersion.Location = new System.Drawing.Point(10, 42);
+            this.lblVersion.Name = "lblVersion";
+            this.lblVersion.Size = new System.Drawing.Size(132, 13);
+            this.lblVersion.TabIndex = 1;
+            this.lblVersion.Text = "Current test version 3.0";
+            // 
             // lblInstruction
             // 
             this.lblInstruction.AutoSize = true;
             this.lblInstruction.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.lblInstruction.Location = new System.Drawing.Point(10, 50);
+            this.lblInstruction.Location = new System.Drawing.Point(10, 60);
             this.lblInstruction.Name = "lblInstruction";
-            this.lblInstruction.Size = new System.Drawing.Size(120, 15);
-            this.lblInstruction.TabIndex = 1;
+            this.lblInstruction.Size = new System.Drawing.Size(99, 15);
+            this.lblInstruction.TabIndex = 2;
             this.lblInstruction.Text = "CAD Instruction:";
             // 
             // txtInstruction
             // 
             this.txtInstruction.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.txtInstruction.Location = new System.Drawing.Point(10, 70);
+            this.txtInstruction.Location = new System.Drawing.Point(10, 80);
             this.txtInstruction.Multiline = true;
             this.txtInstruction.Name = "txtInstruction";
             this.txtInstruction.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
             this.txtInstruction.Size = new System.Drawing.Size(330, 60);
-            this.txtInstruction.TabIndex = 2;
+            this.txtInstruction.TabIndex = 3;
             this.txtInstruction.Enter += new System.EventHandler(this.txtInstruction_Enter);
             this.txtInstruction.Leave += new System.EventHandler(this.txtInstruction_Leave);
             // 
@@ -96,11 +107,11 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.chkUseAI.AutoSize = true;
             this.chkUseAI.Font = new System.Drawing.Font("Segoe UI", 9F);
-            this.chkUseAI.Location = new System.Drawing.Point(10, 140);
+            this.chkUseAI.Location = new System.Drawing.Point(10, 150);
             this.chkUseAI.Name = "chkUseAI";
-            this.chkUseAI.Size = new System.Drawing.Size(200, 19);
-            this.chkUseAI.TabIndex = 3;
-            this.chkUseAI.Text = "Use AI Parsing (requires API key)";
+            this.chkUseAI.Size = new System.Drawing.Size(218, 19);
+            this.chkUseAI.TabIndex = 4;
+            this.chkUseAI.Text = "Use AI parsing (requires API key)";
             this.chkUseAI.UseVisualStyleBackColor = true;
             // 
             // btnPreview
@@ -109,11 +120,11 @@ namespace TextToCad.SolidWorksAddin
             this.btnPreview.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnPreview.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.btnPreview.ForeColor = System.Drawing.Color.White;
-            this.btnPreview.Location = new System.Drawing.Point(10, 170);
+            this.btnPreview.Location = new System.Drawing.Point(10, 180);
             this.btnPreview.Name = "btnPreview";
             this.btnPreview.Size = new System.Drawing.Size(160, 35);
-            this.btnPreview.TabIndex = 4;
-            this.btnPreview.Text = "🔍 Preview (Dry Run)";
+            this.btnPreview.TabIndex = 5;
+            this.btnPreview.Text = "Preview (Dry Run)";
             this.btnPreview.UseVisualStyleBackColor = false;
             this.btnPreview.Click += new System.EventHandler(this.btnPreview_Click);
             // 
@@ -123,11 +134,11 @@ namespace TextToCad.SolidWorksAddin
             this.btnExecute.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnExecute.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.btnExecute.ForeColor = System.Drawing.Color.White;
-            this.btnExecute.Location = new System.Drawing.Point(180, 170);
+            this.btnExecute.Location = new System.Drawing.Point(180, 180);
             this.btnExecute.Name = "btnExecute";
             this.btnExecute.Size = new System.Drawing.Size(160, 35);
-            this.btnExecute.TabIndex = 5;
-            this.btnExecute.Text = "⚙️ Execute";
+            this.btnExecute.TabIndex = 6;
+            this.btnExecute.Text = "Execute";
             this.btnExecute.UseVisualStyleBackColor = false;
             this.btnExecute.Click += new System.EventHandler(this.btnExecute_Click);
             // 
@@ -135,12 +146,12 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.grpPlan.Controls.Add(this.txtPlan);
             this.grpPlan.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpPlan.Location = new System.Drawing.Point(10, 215);
+            this.grpPlan.Location = new System.Drawing.Point(10, 225);
             this.grpPlan.Name = "grpPlan";
             this.grpPlan.Size = new System.Drawing.Size(330, 120);
-            this.grpPlan.TabIndex = 6;
+            this.grpPlan.TabIndex = 7;
             this.grpPlan.TabStop = false;
-            this.grpPlan.Text = "📋 Execution Plan";
+            this.grpPlan.Text = "Execution Plan";
             // 
             // txtPlan
             // 
@@ -160,12 +171,12 @@ namespace TextToCad.SolidWorksAddin
             this.grpLog.Controls.Add(this.txtLog);
             this.grpLog.Controls.Add(this.btnClearLog);
             this.grpLog.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpLog.Location = new System.Drawing.Point(10, 345);
+            this.grpLog.Location = new System.Drawing.Point(10, 355);
             this.grpLog.Name = "grpLog";
             this.grpLog.Size = new System.Drawing.Size(330, 200);
-            this.grpLog.TabIndex = 7;
+            this.grpLog.TabIndex = 8;
             this.grpLog.TabStop = false;
-            this.grpLog.Text = "📝 Log";
+            this.grpLog.Text = "Log";
             // 
             // txtLog
             // 
@@ -199,12 +210,12 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.Controls.Add(this.lblApiBase);
             this.grpSettings.Controls.Add(this.txtApiBase);
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSettings.Location = new System.Drawing.Point(10, 555);
+            this.grpSettings.Location = new System.Drawing.Point(10, 565);
             this.grpSettings.Name = "grpSettings";
             this.grpSettings.Size = new System.Drawing.Size(330, 140);
-            this.grpSettings.TabIndex = 8;
+            this.grpSettings.TabIndex = 9;
             this.grpSettings.TabStop = false;
-            this.grpSettings.Text = "⚙️ Settings";
+            this.grpSettings.Text = "Settings";
             // 
             // grpTestUtils
             // 
@@ -213,12 +224,12 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 700);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 710);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
-            this.grpTestUtils.TabIndex = 10;
+            this.grpTestUtils.TabIndex = 11;
             this.grpTestUtils.TabStop = false;
-            this.grpTestUtils.Text = "🧪 Test Sprint SW-2 Utilities";
+            this.grpTestUtils.Text = "Test Utilities (SW-2)";
             // 
             // btnTestUnits
             // 
@@ -227,7 +238,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestUnits.Name = "btnTestUnits";
             this.btnTestUnits.Size = new System.Drawing.Size(154, 30);
             this.btnTestUnits.TabIndex = 0;
-            this.btnTestUnits.Text = "📏 Test Units";
+            this.btnTestUnits.Text = "Test Units";
             this.btnTestUnits.UseVisualStyleBackColor = true;
             this.btnTestUnits.Click += new System.EventHandler(this.btnTestUnits_Click);
             // 
@@ -238,7 +249,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestPlanes.Name = "btnTestPlanes";
             this.btnTestPlanes.Size = new System.Drawing.Size(154, 30);
             this.btnTestPlanes.TabIndex = 1;
-            this.btnTestPlanes.Text = "📐 Test Plane Selection";
+            this.btnTestPlanes.Text = "Test Plane Selection";
             this.btnTestPlanes.UseVisualStyleBackColor = true;
             this.btnTestPlanes.Click += new System.EventHandler(this.btnTestPlanes_Click);
             // 
@@ -249,7 +260,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestFaces.Name = "btnTestFaces";
             this.btnTestFaces.Size = new System.Drawing.Size(154, 30);
             this.btnTestFaces.TabIndex = 2;
-            this.btnTestFaces.Text = "🔲 Test Face Selection";
+            this.btnTestFaces.Text = "Test Face Selection";
             this.btnTestFaces.UseVisualStyleBackColor = true;
             this.btnTestFaces.Click += new System.EventHandler(this.btnTestFaces_Click);
             // 
@@ -260,7 +271,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestUndo.Name = "btnTestUndo";
             this.btnTestUndo.Size = new System.Drawing.Size(154, 30);
             this.btnTestUndo.TabIndex = 3;
-            this.btnTestUndo.Text = "↩️ Test Undo Scope";
+            this.btnTestUndo.Text = "Test Undo Scope";
             this.btnTestUndo.UseVisualStyleBackColor = true;
             this.btnTestUndo.Click += new System.EventHandler(this.btnTestUndo_Click);
             // 
@@ -271,7 +282,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnOpenLogs.Name = "btnOpenLogs";
             this.btnOpenLogs.Size = new System.Drawing.Size(154, 25);
             this.btnOpenLogs.TabIndex = 5;
-            this.btnOpenLogs.Text = "📂 Open Log Folder";
+            this.btnOpenLogs.Text = "Open Log Folder";
             this.btnOpenLogs.UseVisualStyleBackColor = true;
             this.btnOpenLogs.Click += new System.EventHandler(this.btnOpenLogs_Click);
             // 
@@ -282,7 +293,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestConnection.Name = "btnTestConnection";
             this.btnTestConnection.Size = new System.Drawing.Size(154, 25);
             this.btnTestConnection.TabIndex = 4;
-            this.btnTestConnection.Text = "🔌 Test Connection";
+            this.btnTestConnection.Text = "Test Connection";
             this.btnTestConnection.UseVisualStyleBackColor = true;
             this.btnTestConnection.Click += new System.EventHandler(this.btnTestConnection_Click);
             // 
@@ -292,9 +303,9 @@ namespace TextToCad.SolidWorksAddin
             this.lblConnectionStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
             this.lblConnectionStatus.Location = new System.Drawing.Point(6, 82);
             this.lblConnectionStatus.Name = "lblConnectionStatus";
-            this.lblConnectionStatus.Size = new System.Drawing.Size(90, 13);
+            this.lblConnectionStatus.Size = new System.Drawing.Size(78, 13);
             this.lblConnectionStatus.TabIndex = 3;
-            this.lblConnectionStatus.Text = "● Disconnected";
+            this.lblConnectionStatus.Text = "Disconnected";
             // 
             // btnUpdateUrl
             // 
@@ -313,7 +324,7 @@ namespace TextToCad.SolidWorksAddin
             this.lblApiBase.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.lblApiBase.Location = new System.Drawing.Point(6, 25);
             this.lblApiBase.Name = "lblApiBase";
-            this.lblApiBase.Size = new System.Drawing.Size(95, 15);
+            this.lblApiBase.Size = new System.Drawing.Size(111, 15);
             this.lblApiBase.TabIndex = 0;
             this.lblApiBase.Text = "Backend API URL:";
             // 
@@ -353,6 +364,7 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.chkUseAI);
             this.Controls.Add(this.txtInstruction);
             this.Controls.Add(this.lblInstruction);
+            this.Controls.Add(this.lblVersion);
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
@@ -371,6 +383,7 @@ namespace TextToCad.SolidWorksAddin
         #endregion
 
         private System.Windows.Forms.Label lblTitle;
+        private System.Windows.Forms.Label lblVersion;
         private System.Windows.Forms.Label lblInstruction;
         private System.Windows.Forms.TextBox txtInstruction;
         private System.Windows.Forms.CheckBox chkUseAI;

@@ -32,7 +32,7 @@ Create `.env` files for configuration:
 
 **Frontend** (`frontend/.env`):
 ```
-VITE_API_BASE=http://localhost:8000/docs
+VITE_API_BASE=http://localhost:8000
 ```
 
 **Backend** (`backend/.env`) - Optional for AI features:
@@ -59,6 +59,22 @@ Perfect for showcasing the system:
 - **"Containerization/Cloud Run are next; architecture already cleanly separated."**
 
 ---
+
+## Local Run Checklist
+
+1. **Backend**: create venv, install deps, and start the API
+   - `cd backend`
+   - `python -m venv .venv`
+   - `.venv\Scripts\Activate.ps1` (Windows) or `source .venv/bin/activate` (macOS/Linux)
+   - `pip install -r requirements.txt`
+   - `uvicorn main:app --reload`
+2. **Frontend**: install deps and run Vite
+   - `cd frontend`
+   - `npm install`
+   - `npm run dev`
+3. **Verify endpoints**
+   - `curl http://localhost:8000/health`
+   - `curl -X POST http://localhost:8000/dry_run -H "Content-Type: application/json" -d "{\"instruction\":\"create a 5mm hole\",\"use_ai\":false}"`
 
 ## 🛠️ Troubleshooting
 
@@ -143,14 +159,34 @@ curl -X POST "http://localhost:8000/process_instruction" \
 **Response:**
 ```json
 {
+  "schema_version": "1.0",
   "instruction": "extrude a 5mm cylinder with 10mm diameter",
+  "source": "rule",
+  "plan": [
+    "Extrude cylinder A~10.0 mm A- 5.0 mm height"
+  ],
   "parsed_parameters": {
     "action": "extrude",
-    "shape": "cylinder", 
-    "height_mm": 5.0,
-    "diameter_mm": 10.0,
-    "count": null
-  }
+    "parameters": {
+      "count": null,
+      "diameter_mm": 10.0,
+      "height_mm": 5.0,
+      "shape": "cylinder",
+      "pattern": null
+    }
+  },
+  "operations": [
+    {
+      "action": "extrude",
+      "parameters": {
+        "count": null,
+        "diameter_mm": 10.0,
+        "height_mm": 5.0,
+        "shape": "cylinder",
+        "pattern": null
+      }
+    }
+  ]
 }
 ```
 
@@ -163,6 +199,12 @@ curl -X POST "http://localhost:8000/process_instruction" \
 - **Configuration**: Optional `.env` file support (see `backend/.env.example`)
 
 ---
+
+### Tests
+
+```bash
+pytest -q
+```
 
 ## API Contract & Preview Plan
 
@@ -204,7 +246,19 @@ Process natural language CAD instructions, save to database, and return parsed p
       "shape": null,
       "pattern": null
     }
-  }
+  },
+  "operations": [
+    {
+      "action": "create_hole",
+      "parameters": {
+        "count": 4,
+        "diameter_mm": null,
+        "height_mm": null,
+        "shape": null,
+        "pattern": null
+      }
+    }
+  ]
 }
 ```
 
@@ -224,6 +278,7 @@ Process natural language CAD instructions, save to database, and return parsed p
       - `type` (string | null): Pattern type (`"circular"`, `"linear"`)
       - `count` (number | null): Number of pattern instances
       - `angle_deg` (number | null): Angular spacing for circular patterns
+- `operations` (array of objects): All parsed operations (multi-operation instructions); each item matches `parsed_parameters` shape
 
 **Error Response (422 Unprocessable Entity):**
 ```json
@@ -231,7 +286,7 @@ Process natural language CAD instructions, save to database, and return parsed p
   "detail": [
     {
       "loc": ["body", "instruction"],
-      "msg": "Instruction must be at least 3 characters long",
+      "msg": "Instruction cannot be empty.",
       "type": "value_error"
     }
   ]
@@ -282,7 +337,7 @@ Preview instruction parsing **without** saving to database or executing operatio
 
 **Response Fields:**
 - Identical structure to `/process_instruction`
-- Same `schema_version`, `source`, `plan`, and `parsed_parameters` format
+- Same `schema_version`, `source`, `plan`, `parsed_parameters`, and optional `operations` format
 
 **Key Differences from /process_instruction:**
 - ❌ Does NOT save to database
@@ -408,7 +463,7 @@ All validation errors return HTTP 422 with Pydantic validation details:
   "detail": [
     {
       "loc": ["body", "instruction"],
-      "msg": "Instruction cannot be blank or empty",
+      "msg": "Instruction cannot be empty.",
       "type": "value_error"
     }
   ]
@@ -502,24 +557,10 @@ curl "http://localhost:8000/commands?limit=10"
 ]
 ```
 
-#### Updated POST /process_instruction
-Now returns the saved database record instead of just parsed parameters.
-
-**New Response Format:**
-```json
-{
-  "id": 1,
-  "prompt": "extrude a 5mm tall cylinder with 10mm diameter",
-  "action": "extrude",
-  "parameters": {
-    "shape": "cylinder",
-    "height_mm": 5.0,
-    "diameter_mm": 10.0,
-    "count": null
-  },
-  "created_at": "2025-08-13T10:30:45.123456"
-}
-```
+#### POST /process_instruction Response
+Returns the same InstructionResponse shape described in the API Contract section
+(`schema_version`, `source`, `plan`, `parsed_parameters`, `operations`).
+Use `GET /commands` to fetch the stored database records.
 
 ### Database Troubleshooting
 
@@ -697,8 +738,12 @@ The system provides **robust fallback** to ensure reliability:
 **Response Format** (both AI and rule-based):
 ```json
 {
+  "schema_version": "1.0",
   "instruction": "create a 5mm hole",
   "source": "ai" | "rule",
+  "plan": [
+    "Create hole A~5 mm"
+  ],
   "parsed_parameters": {
     "action": "create_hole",
     "parameters": {
@@ -708,7 +753,19 @@ The system provides **robust fallback** to ensure reliability:
       "shape": null,
       "pattern": null
     }
-  }
+  },
+  "operations": [
+    {
+      "action": "create_hole",
+      "parameters": {
+        "diameter_mm": 5,
+        "count": null,
+        "height_mm": null,
+        "shape": null,
+        "pattern": null
+      }
+    }
+  ]
 }
 ```
 

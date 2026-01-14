@@ -1,0 +1,29 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "solidworks-addin", "solidworks-addin", "{E549B02D-D124-B8B5-6C9C-96CF291625AE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "TextToCad.SolidWorksAddin", "solidworks-addin\TextToCad.SolidWorksAddin.csproj", "{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{B6BBAFB7-FA88-7339-AF2A-4FE1A961B19F} = {E549B02D-D124-B8B5-6C9C-96CF291625AE}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {50B5DB09-45DE-402C-91F0-75000560B5E0}
+	EndGlobalSection
+EndGlobal

@@ -82,7 +82,7 @@ namespace TextToCad.SolidWorksAddin
             catch (Exception ex)
             {
                 Logger.Error("Failed to connect to SolidWorks", ex);
-                
+
                 // Show error to user
                 string errorMsg = $"Text-to-CAD Add-In failed to load:\n\n{ex.Message}\n\n" +
                                  $"Check log file at:\n{Logger.GetLogFilePath()}";
@@ -147,11 +147,11 @@ namespace TextToCad.SolidWorksAddin
                 bool connected = await ApiClient.TestConnectionAsync();
                 if (connected)
                 {
-                    Logger.Info($"✓ Backend API is reachable at {ApiClient.GetBaseUrl()}");
+                    Logger.Info($"Backend API is reachable at {ApiClient.GetBaseUrl()}");
                 }
                 else
                 {
-                    Logger.Warning($"✗ Backend API is not reachable at {ApiClient.GetBaseUrl()}");
+                    Logger.Warning($"Backend API is not reachable at {ApiClient.GetBaseUrl()}");
                     Logger.Warning("Please ensure the FastAPI server is running:");
                     Logger.Warning("  cd backend");
                     Logger.Warning("  .venv\\Scripts\\Activate.ps1");
@@ -182,7 +182,7 @@ namespace TextToCad.SolidWorksAddin
                 Microsoft.Win32.RegistryKey hkcu = Microsoft.Win32.Registry.CurrentUser;
 
                 string keyname = "SOFTWARE\\SolidWorks\\Addins\\{" + t.GUID.ToString() + "}";
-                
+
                 // Create keys in both HKLM and HKCU
                 Microsoft.Win32.RegistryKey addinkey = hklm.CreateSubKey(keyname);
                 addinkey.SetValue(null, 0);

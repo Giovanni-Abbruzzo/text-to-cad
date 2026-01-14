@@ -28,11 +28,14 @@ Turn natural language into **parametric CAD** (STL/STEP) through a chat interfac
 
 ## Sprints
 Sprint 1 — Backend MVP (FastAPI)
-Goal: A working API with two endpoints and simple parsing.
+Goal: A working API with core endpoints and simple parsing.
 
-Endpoint GET /health → returns {status:"ok"}
+Endpoint GET /health -> returns {"status":"ok"}
 
-Endpoint POST /process_instruction → accepts {text: string}; returns {action, prompt, parameters}
+Endpoint POST /process_instruction -> accepts {"instruction": string, "use_ai": boolean}; returns
+{schema_version, source, plan, parsed_parameters, operations}
+
+Endpoint POST /dry_run -> accepts the same request body; returns the same response shape without DB writes
 
 Naive parsing: detect keywords like “hole/extrude/fillet” and numbers
 
@@ -40,9 +43,9 @@ DoD / Acceptance Tests:
 
 uvicorn main:app --reload runs with no errors
 
-http://localhost:8000/docs shows both endpoints
+http://localhost:8000/docs shows /process_instruction and /dry_run
 
-POST /process_instruction returns action based on text
+POST /process_instruction returns schema_version, source, plan, parsed_parameters, and operations
 
 
 Sprint 2 — Frontend MVP (React, Vite)
@@ -88,6 +91,7 @@ Goal: Natural language → structured JSON via LLM (for better parsing).
 In /process_instruction, add optional LLM call:
 
 Prompt the model to return strict JSON: { "action": "<create_hole|extrude|...>", "parameters": { ... } }
+The API response shape remains {schema_version, source, plan, parsed_parameters, operations}
 
 Fallback to naive parsing if API key is missing
 

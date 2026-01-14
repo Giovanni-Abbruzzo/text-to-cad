@@ -27,47 +27,47 @@ namespace TextToCad.SolidWorksAddin
             // Determine user-friendly message based on exception type
             if (ex is HttpRequestException)
             {
-                userMessage = "❌ Cannot connect to backend API.\n\n" +
+                userMessage = "Cannot connect to backend API.\n\n" +
                              "Please ensure:\n" +
-                             "• Backend server is running (uvicorn main:app --reload)\n" +
-                             "• API URL is correct in settings\n" +
-                             "• No firewall is blocking the connection\n\n" +
+                             "- Backend server is running (uvicorn main:app --reload)\n" +
+                             "- API URL is correct in settings\n" +
+                             "- No firewall is blocking the connection\n\n" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is TaskCanceledException || ex is TimeoutException)
             {
-                userMessage = "⏱️ Request timed out.\n\n" +
+                userMessage = "Request timed out.\n\n" +
                              "The backend took too long to respond.\n" +
                              "Please check if the server is overloaded or the instruction is too complex.\n\n" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is Newtonsoft.Json.JsonException)
             {
-                userMessage = "📄 Invalid response from backend.\n\n" +
+                userMessage = "Invalid response from backend.\n\n" +
                              "The server returned data in an unexpected format.\n" +
                              "This might indicate a backend error or version mismatch.\n\n" +
                              $"Technical details: {ex.Message}";
             }
             else if (ex is ArgumentException || ex is ArgumentNullException)
             {
-                userMessage = "⚠️ Invalid input.\n\n" +
+                userMessage = "Invalid input.\n\n" +
                              $"{ex.Message}\n\n" +
                              "Please check your instruction and try again.";
             }
             else if (ex is UnauthorizedAccessException)
             {
-                userMessage = "🔒 Access denied.\n\n" +
-                             "The add-in doesn't have permission to perform this operation.\n" +
+                userMessage = "Access denied.\n\n" +
+                             "The add-in does not have permission to perform this operation.\n" +
                              "Try running SolidWorks as administrator.\n\n" +
                              $"Technical details: {ex.Message}";
             }
             else
             {
                 // Generic error
-                userMessage = $"❌ An unexpected error occurred.\n\n" +
+                userMessage = "An unexpected error occurred.\n\n" +
                              $"Error type: {ex.GetType().Name}\n" +
                              $"Message: {ex.Message}\n\n" +
-                             $"Please check the log file for more details.";
+                             "Please check the log file for more details.";
             }
 
             return userMessage;
