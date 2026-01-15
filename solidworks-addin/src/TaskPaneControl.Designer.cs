@@ -37,6 +37,12 @@ namespace TextToCad.SolidWorksAddin
             this.btnExecute = new System.Windows.Forms.Button();
             this.grpPlan = new System.Windows.Forms.GroupBox();
             this.txtPlan = new System.Windows.Forms.TextBox();
+            this.grpSteps = new System.Windows.Forms.GroupBox();
+            this.lstSteps = new System.Windows.Forms.CheckedListBox();
+            this.btnRunSelectedStep = new System.Windows.Forms.Button();
+            this.btnRunCheckedSteps = new System.Windows.Forms.Button();
+            this.btnRunNextStep = new System.Windows.Forms.Button();
+            this.btnUndoLastStep = new System.Windows.Forms.Button();
             this.grpLog = new System.Windows.Forms.GroupBox();
             this.txtLog = new System.Windows.Forms.RichTextBox();
             this.btnClearLog = new System.Windows.Forms.Button();
@@ -61,6 +67,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestUndo = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.grpPlan.SuspendLayout();
+            this.grpSteps.SuspendLayout();
             this.grpLog.SuspendLayout();
             this.grpSettings.SuspendLayout();
             this.grpTestUtils.SuspendLayout();
@@ -173,15 +180,84 @@ namespace TextToCad.SolidWorksAddin
             this.txtPlan.Size = new System.Drawing.Size(324, 98);
             this.txtPlan.TabIndex = 0;
             // 
+            // grpSteps
+            // 
+            this.grpSteps.Controls.Add(this.lstSteps);
+            this.grpSteps.Controls.Add(this.btnRunSelectedStep);
+            this.grpSteps.Controls.Add(this.btnRunCheckedSteps);
+            this.grpSteps.Controls.Add(this.btnRunNextStep);
+            this.grpSteps.Controls.Add(this.btnUndoLastStep);
+            this.grpSteps.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.grpSteps.Location = new System.Drawing.Point(10, 355);
+            this.grpSteps.Name = "grpSteps";
+            this.grpSteps.Size = new System.Drawing.Size(330, 140);
+            this.grpSteps.TabIndex = 8;
+            this.grpSteps.TabStop = false;
+            this.grpSteps.Text = "Steps";
+            // 
+            // lstSteps
+            // 
+            this.lstSteps.CheckOnClick = true;
+            this.lstSteps.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lstSteps.FormattingEnabled = true;
+            this.lstSteps.Location = new System.Drawing.Point(6, 20);
+            this.lstSteps.Name = "lstSteps";
+            this.lstSteps.Size = new System.Drawing.Size(318, 79);
+            this.lstSteps.TabIndex = 0;
+            // 
+            // btnRunSelectedStep
+            // 
+            this.btnRunSelectedStep.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnRunSelectedStep.Location = new System.Drawing.Point(6, 105);
+            this.btnRunSelectedStep.Name = "btnRunSelectedStep";
+            this.btnRunSelectedStep.Size = new System.Drawing.Size(76, 25);
+            this.btnRunSelectedStep.TabIndex = 1;
+            this.btnRunSelectedStep.Text = "Run Selected";
+            this.btnRunSelectedStep.UseVisualStyleBackColor = true;
+            this.btnRunSelectedStep.Click += new System.EventHandler(this.btnRunSelectedStep_Click);
+            // 
+            // btnRunCheckedSteps
+            // 
+            this.btnRunCheckedSteps.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnRunCheckedSteps.Location = new System.Drawing.Point(88, 105);
+            this.btnRunCheckedSteps.Name = "btnRunCheckedSteps";
+            this.btnRunCheckedSteps.Size = new System.Drawing.Size(76, 25);
+            this.btnRunCheckedSteps.TabIndex = 2;
+            this.btnRunCheckedSteps.Text = "Run Checked";
+            this.btnRunCheckedSteps.UseVisualStyleBackColor = true;
+            this.btnRunCheckedSteps.Click += new System.EventHandler(this.btnRunCheckedSteps_Click);
+            // 
+            // btnRunNextStep
+            // 
+            this.btnRunNextStep.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnRunNextStep.Location = new System.Drawing.Point(170, 105);
+            this.btnRunNextStep.Name = "btnRunNextStep";
+            this.btnRunNextStep.Size = new System.Drawing.Size(76, 25);
+            this.btnRunNextStep.TabIndex = 3;
+            this.btnRunNextStep.Text = "Run Next";
+            this.btnRunNextStep.UseVisualStyleBackColor = true;
+            this.btnRunNextStep.Click += new System.EventHandler(this.btnRunNextStep_Click);
+            // 
+            // btnUndoLastStep
+            // 
+            this.btnUndoLastStep.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnUndoLastStep.Location = new System.Drawing.Point(252, 105);
+            this.btnUndoLastStep.Name = "btnUndoLastStep";
+            this.btnUndoLastStep.Size = new System.Drawing.Size(76, 25);
+            this.btnUndoLastStep.TabIndex = 4;
+            this.btnUndoLastStep.Text = "Undo Last";
+            this.btnUndoLastStep.UseVisualStyleBackColor = true;
+            this.btnUndoLastStep.Click += new System.EventHandler(this.btnUndoLastStep_Click);
+            // 
             // grpLog
             // 
             this.grpLog.Controls.Add(this.txtLog);
             this.grpLog.Controls.Add(this.btnClearLog);
             this.grpLog.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpLog.Location = new System.Drawing.Point(10, 355);
+            this.grpLog.Location = new System.Drawing.Point(10, 505);
             this.grpLog.Name = "grpLog";
             this.grpLog.Size = new System.Drawing.Size(330, 200);
-            this.grpLog.TabIndex = 8;
+            this.grpLog.TabIndex = 9;
             this.grpLog.TabStop = false;
             this.grpLog.Text = "Log";
             // 
@@ -224,10 +300,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.Controls.Add(this.lblApiBase);
             this.grpSettings.Controls.Add(this.txtApiBase);
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSettings.Location = new System.Drawing.Point(10, 565);
+            this.grpSettings.Location = new System.Drawing.Point(10, 715);
             this.grpSettings.Name = "grpSettings";
             this.grpSettings.Size = new System.Drawing.Size(330, 250);
-            this.grpSettings.TabIndex = 9;
+            this.grpSettings.TabIndex = 10;
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "Settings";
             // 
@@ -238,10 +314,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 820);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 970);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
-            this.grpTestUtils.TabIndex = 11;
+            this.grpTestUtils.TabIndex = 12;
             this.grpTestUtils.TabStop = false;
             this.grpTestUtils.Text = "Test Utilities (SW-2)";
             // 
@@ -394,7 +470,7 @@ namespace TextToCad.SolidWorksAddin
             this.lblReplayStatus.Name = "lblReplayStatus";
             this.lblReplayStatus.Size = new System.Drawing.Size(318, 30);
             this.lblReplayStatus.TabIndex = 4;
-            this.lblReplayStatus.Text = "Replay idle. Use Replay Last Session to replay the last session.";
+            this.lblReplayStatus.Text = "Replay idle. Click 'Replay Last Session' to recreate the last session.";
             // 
             // btnUpdateUrl
             // 
@@ -429,7 +505,7 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 920);
+            this.lblStatus.Location = new System.Drawing.Point(0, 1070);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
@@ -447,6 +523,7 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.grpTestUtils);
             this.Controls.Add(this.grpSettings);
             this.Controls.Add(this.grpLog);
+            this.Controls.Add(this.grpSteps);
             this.Controls.Add(this.grpPlan);
             this.Controls.Add(this.btnExecute);
             this.Controls.Add(this.btnPreview);
@@ -457,9 +534,11 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 945);
+            this.Size = new System.Drawing.Size(350, 1095);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
+            this.grpSteps.ResumeLayout(false);
+            this.grpSteps.PerformLayout();
             this.grpLog.ResumeLayout(false);
             this.grpSettings.ResumeLayout(false);
             this.grpSettings.PerformLayout();
@@ -480,6 +559,12 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.Button btnExecute;
         private System.Windows.Forms.GroupBox grpPlan;
         private System.Windows.Forms.TextBox txtPlan;
+        private System.Windows.Forms.GroupBox grpSteps;
+        private System.Windows.Forms.CheckedListBox lstSteps;
+        private System.Windows.Forms.Button btnRunSelectedStep;
+        private System.Windows.Forms.Button btnRunCheckedSteps;
+        private System.Windows.Forms.Button btnRunNextStep;
+        private System.Windows.Forms.Button btnUndoLastStep;
         private System.Windows.Forms.GroupBox grpLog;
         private System.Windows.Forms.RichTextBox txtLog;
         private System.Windows.Forms.Button btnClearLog;

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using TextToCad.SolidWorksAddin.Models;
@@ -19,6 +20,12 @@ namespace TextToCad.SolidWorksAddin
 
         private bool isProcessing = false;
         private Addin _addin;
+        private InstructionResponse _lastResponse;
+        private bool _lastUseAI;
+        private readonly List<ParsedParameters> _stepOperations = new List<ParsedParameters>();
+        private readonly HashSet<int> _executedSteps = new HashSet<int>();
+        private readonly Stack<int> _undoStack = new Stack<int>();
+        private readonly Dictionary<int, string> _stepFeatureNames = new Dictionary<int, string>();
 
         #endregion
 
@@ -377,6 +384,172 @@ namespace TextToCad.SolidWorksAddin
             UpdateReplayStatusLabel();
         }
 
+        /// <summary>
+        /// Handle Run Selected Step button click
+        /// </summary>
+        private void btnRunSelectedStep_Click(object sender, EventArgs e)
+        {
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            if (lstSteps == null || lstSteps.SelectedIndex < 0)
+            {
+                AppendLog("Select a step to run.", Color.Orange);
+                return;
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+                ExecuteStepIndices(new List<int> { lstSteps.SelectedIndex });
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
+        /// <summary>
+        /// Handle Run Checked Steps button click
+        /// </summary>
+        private void btnRunCheckedSteps_Click(object sender, EventArgs e)
+        {
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            if (lstSteps == null || lstSteps.CheckedIndices.Count == 0)
+            {
+                AppendLog("No checked steps to run.", Color.Orange);
+                return;
+            }
+
+            var indices = lstSteps.CheckedIndices.Cast<int>().OrderBy(i => i).ToList();
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+                ExecuteStepIndices(indices);
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
+        /// <summary>
+        /// Handle Run Next Step button click
+        /// </summary>
+        private void btnRunNextStep_Click(object sender, EventArgs e)
+        {
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            if (_stepOperations.Count == 0)
+            {
+                AppendLog("No steps loaded. Preview or Execute an instruction first.", Color.Orange);
+                return;
+            }
+
+            int nextIndex = -1;
+            for (int i = 0; i < _stepOperations.Count; i++)
+            {
+                if (_executedSteps.Contains(i))
+                {
+                    continue;
+                }
+
+                if (_stepOperations[i] == null)
+                {
+                    continue;
+                }
+
+                nextIndex = i;
+                break;
+            }
+
+            if (nextIndex < 0)
+            {
+                AppendLog("All steps have already been executed.", Color.DarkGray);
+                return;
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+                ExecuteStepIndices(new List<int> { nextIndex });
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
+        /// <summary>
+        /// Handle Undo Last Step button click
+        /// </summary>
+        private void btnUndoLastStep_Click(object sender, EventArgs e)
+        {
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            if (_undoStack.Count == 0)
+            {
+                AppendLog("No executed steps to undo.", Color.Orange);
+                return;
+            }
+
+            if (!TryGetActiveModel(out var swApp, out var model, out var logger))
+            {
+                return;
+            }
+
+            int lastIndex = _undoStack.Peek();
+            bool undone = TryUndoLastOperation(model, logger, lastIndex);
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+
+                if (undone)
+                {
+                    _undoStack.Pop();
+                    _executedSteps.Remove(lastIndex);
+                    _stepFeatureNames.Remove(lastIndex);
+                    if (lastIndex >= 0 && lastIndex < _stepOperations.Count)
+                    {
+                        lstSteps.Items[lastIndex] = BuildStepLabel(lastIndex, _stepOperations[lastIndex], false);
+                    }
+                    AppendLog($"Undo successful for step {lastIndex + 1}.", Color.Green);
+                }
+                else
+                {
+                    AppendLog("Undo failed - see log for details.", Color.Red);
+                }
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
         private void UpdateReplayStatusLabel()
         {
             if (lblReplayStatus == null)
@@ -389,11 +562,11 @@ namespace TextToCad.SolidWorksAddin
                 int sessionIndex = ReplayLogger.GetSessionIndex();
                 if (ReplayLogger.IsPaused())
                 {
-                    lblReplayStatus.Text = $"Replay paused: session {sessionIndex} (resume to log)";
+                    lblReplayStatus.Text = $"Replay paused: session {sessionIndex} (resume to continue logging)";
                 }
                 else
                 {
-                    lblReplayStatus.Text = $"Replay active: session {sessionIndex} (tracking commands)";
+                    lblReplayStatus.Text = $"Tracking commands for session {sessionIndex}.";
                 }
             }
             else
@@ -401,11 +574,11 @@ namespace TextToCad.SolidWorksAddin
                 int lastSession = ReplayLogger.GetLastSessionIndex();
                 if (lastSession > 0)
                 {
-                    lblReplayStatus.Text = $"Replay idle. Use Replay Last Session to replay session {lastSession}.";
+                    lblReplayStatus.Text = $"Replay idle. Click 'Replay Last Session' to recreate session {lastSession}.";
                 }
                 else
                 {
-                    lblReplayStatus.Text = "Replay idle. Use Replay Last Session to replay the last session.";
+                    lblReplayStatus.Text = "Replay idle. Click 'Replay Last Session' to recreate the last session.";
                 }
             }
         }
@@ -689,7 +862,9 @@ namespace TextToCad.SolidWorksAddin
                         try
                         {
                             string errorMessage = null;
+                            string featureBefore = GetLastFeatureName(model);
                             bool success = ExecuteSingleOperation(swApp, model, operation, logger);
+                            string createdFeatureName = success ? ResolveCreatedFeatureName(featureBefore, GetLastFeatureName(model)) : null;
 
                             if (success)
                             {
@@ -701,6 +876,8 @@ namespace TextToCad.SolidWorksAddin
                                 allSucceeded = false;
                                 errorMessage = "Operation failed - see log for details.";
                             }
+
+                            UpdateStepExecutionState(i, success, createdFeatureName);
 
                             ReplayLogger.AppendEntry(new ReplayEntry
                             {
@@ -760,7 +937,11 @@ namespace TextToCad.SolidWorksAddin
                         return false;
                     }
 
+                    string featureBefore = GetLastFeatureName(model);
                     bool success = ExecuteSingleOperation(swApp, model, parsed, logger);
+                    string createdFeatureName = success ? ResolveCreatedFeatureName(featureBefore, GetLastFeatureName(model)) : null;
+
+                    UpdateStepExecutionState(0, success, createdFeatureName);
 
                     ReplayLogger.AppendEntry(new ReplayEntry
                     {
@@ -1281,9 +1462,369 @@ namespace TextToCad.SolidWorksAddin
 
             AppendLog("============================================\n", Color.DarkBlue);
 
+            _lastResponse = response;
+            _lastUseAI = response.IsAIParsed;
+            LoadStepsFromResponse(response);
+
             // Update status
             lblStatus.Text = $"{mode} Complete - {source}";
             lblStatus.ForeColor = Color.Green;
+        }
+
+        private void LoadStepsFromResponse(InstructionResponse response)
+        {
+            if (lstSteps == null)
+            {
+                return;
+            }
+
+            lstSteps.Items.Clear();
+            _stepOperations.Clear();
+            _executedSteps.Clear();
+            _undoStack.Clear();
+            _stepFeatureNames.Clear();
+
+            if (response == null)
+            {
+                lstSteps.Items.Add("(No steps available)", false);
+                lstSteps.Enabled = false;
+                return;
+            }
+
+            var operations = new List<ParsedParameters>();
+            if (response.Operations != null && response.Operations.Count > 0)
+            {
+                operations.AddRange(response.Operations);
+            }
+            else if (response.ParsedParameters != null)
+            {
+                operations.Add(response.ParsedParameters);
+            }
+
+            if (operations.Count == 0)
+            {
+                lstSteps.Items.Add("(No steps available)", false);
+                lstSteps.Enabled = false;
+                return;
+            }
+
+            lstSteps.Enabled = true;
+            for (int i = 0; i < operations.Count; i++)
+            {
+                var op = operations[i];
+                _stepOperations.Add(op);
+                lstSteps.Items.Add(BuildStepLabel(i, op, false), true);
+            }
+        }
+
+        private string BuildStepLabel(int index, ParsedParameters operation, bool executed)
+        {
+            string prefix = executed ? "✓ " : "";
+            string description = operation != null
+                ? $"{operation.GetActionDescription()} - {operation.GetParametersSummary()}"
+                : "Unknown step";
+
+            return $"{prefix}{index + 1}. {description}";
+        }
+
+        private void UpdateStepExecutionState(int index, bool success, string createdFeatureName)
+        {
+            if (!success)
+            {
+                return;
+            }
+
+            _executedSteps.Add(index);
+            _undoStack.Push(index);
+
+            if (!string.IsNullOrWhiteSpace(createdFeatureName))
+            {
+                _stepFeatureNames[index] = createdFeatureName;
+            }
+            else
+            {
+                _stepFeatureNames.Remove(index);
+            }
+
+            if (lstSteps != null && index >= 0 && index < _stepOperations.Count && index < lstSteps.Items.Count)
+            {
+                lstSteps.Items[index] = BuildStepLabel(index, _stepOperations[index], true);
+            }
+        }
+
+        private string ResolveCreatedFeatureName(string beforeName, string afterName)
+        {
+            if (string.IsNullOrWhiteSpace(afterName))
+            {
+                return null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(beforeName) &&
+                string.Equals(beforeName, afterName, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return afterName;
+        }
+
+        private string GetLastFeatureName(SolidWorks.Interop.sldworks.IModelDoc2 model)
+        {
+            if (model == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                SolidWorks.Interop.sldworks.IFeature feature =
+                    model.FirstFeature() as SolidWorks.Interop.sldworks.IFeature;
+                SolidWorks.Interop.sldworks.IFeature lastFeature = null;
+
+                while (feature != null)
+                {
+                    string typeName = feature.GetTypeName2() ?? string.Empty;
+                    bool isReference =
+                        typeName == "ProfileFeature" ||
+                        typeName == "RefPlane" ||
+                        typeName == "RefAxis" ||
+                        typeName == "RefPoint" ||
+                        typeName == "CoordSys" ||
+                        typeName.Contains("OriginFeature");
+
+                    if (!isReference)
+                    {
+                        lastFeature = feature;
+                    }
+
+                    feature = feature.GetNextFeature() as SolidWorks.Interop.sldworks.IFeature;
+                }
+
+                return lastFeature?.Name;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private void ExecuteStepIndices(IList<int> indices)
+        {
+            if (_stepOperations.Count == 0 || _lastResponse == null)
+            {
+                AppendLog("No steps loaded. Preview or Execute an instruction first.", Color.Orange);
+                return;
+            }
+
+            if (!TryGetActiveModel(out var swApp, out var model, out var logger))
+            {
+                return;
+            }
+
+            bool replayEnabled = ReplayLogger.EnsureSession();
+            var modelInfo = BuildReplayModelInfo(model);
+            if (replayEnabled)
+            {
+                UpdateReplayStatusLabel();
+            }
+
+            bool allSucceeded = true;
+            foreach (int index in indices)
+            {
+                if (index < 0 || index >= _stepOperations.Count)
+                {
+                    continue;
+                }
+
+                if (_executedSteps.Contains(index))
+                {
+                    AppendLog($"Step {index + 1} already executed - skipping", Color.DarkGray);
+                    continue;
+                }
+
+                var operation = _stepOperations[index];
+                if (operation == null)
+                {
+                    AppendLog($"Step {index + 1} is empty - skipping", Color.Orange);
+                    continue;
+                }
+                AppendLog($"\nRunning step {index + 1}/{_stepOperations.Count}:", Color.DarkBlue);
+                AppendLog($"  {operation.GetActionDescription()} - {operation.GetParametersSummary()}", Color.DarkGray);
+
+                string featureBefore = GetLastFeatureName(model);
+                bool success = ExecuteSingleOperation(swApp, model, operation, logger);
+                string createdFeatureName = success ? ResolveCreatedFeatureName(featureBefore, GetLastFeatureName(model)) : null;
+                if (success)
+                {
+                    AppendLog($"Step {index + 1} completed", Color.Green);
+                }
+                else
+                {
+                    AppendLog($"Step {index + 1} failed", Color.Red);
+                    allSucceeded = false;
+                }
+
+                UpdateStepExecutionState(index, success, createdFeatureName);
+
+                ReplayLogger.AppendEntry(new ReplayEntry
+                {
+                    SchemaVersion = _lastResponse.SchemaVersion ?? "1.0",
+                    Instruction = _lastResponse.Instruction,
+                    UseAI = _lastUseAI,
+                    Source = _lastResponse.Source,
+                    OperationIndex = index + 1,
+                    OperationCount = _stepOperations.Count,
+                    Operation = operation,
+                    Plan = _lastResponse.Plan ?? new List<string>(),
+                    Model = modelInfo,
+                    Result = new ReplayResult
+                    {
+                        Success = success,
+                        Error = success ? null : "Step failed - see log for details."
+                    }
+                });
+            }
+
+            if (allSucceeded)
+            {
+                AppendLog("\nSelected steps completed successfully", Color.Green);
+            }
+            else
+            {
+                AppendLog("\nSome selected steps failed - check log above", Color.Orange);
+            }
+        }
+
+        private bool TryGetActiveModel(
+            out SolidWorks.Interop.sldworks.ISldWorks swApp,
+            out SolidWorks.Interop.sldworks.IModelDoc2 model,
+            out Utils.Logger logger)
+        {
+            swApp = _addin?.SwApp;
+            model = null;
+            logger = null;
+
+            if (swApp == null)
+            {
+                AppendLog("SolidWorks application not available", Color.Red);
+                return false;
+            }
+
+            model = swApp.ActiveDoc as SolidWorks.Interop.sldworks.IModelDoc2;
+            if (model == null)
+            {
+                AppendLog("No active SolidWorks document", Color.Red);
+                AppendLog("Please open a Part document first", Color.Orange);
+                return false;
+            }
+
+            if (model.GetType() != (int)SolidWorks.Interop.swconst.swDocumentTypes_e.swDocPART)
+            {
+                AppendLog("Active document is not a Part", Color.Red);
+                AppendLog("Please open a Part document (not Assembly or Drawing)", Color.Orange);
+                return false;
+            }
+
+            logger = new Utils.Logger(msg => AppendLog(msg, Color.DarkGray));
+            return true;
+        }
+
+        private bool TryUndoLastOperation(
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            Utils.Logger logger,
+            int stepIndex)
+        {
+            if (model == null)
+            {
+                return false;
+            }
+
+            if (_stepFeatureNames.TryGetValue(stepIndex, out string featureName) &&
+                !string.IsNullOrWhiteSpace(featureName))
+            {
+                AppendLog($"Undo: deleting feature '{featureName}'", Color.DarkGray);
+                if (TryDeleteFeature(model, featureName, logger))
+                {
+                    return true;
+                }
+
+                AppendLog($"Undo: failed to delete feature '{featureName}', trying SolidWorks undo.", Color.Orange);
+            }
+
+            return TryEditUndo(model, logger);
+        }
+
+        private bool TryDeleteFeature(
+            SolidWorks.Interop.sldworks.IModelDoc2 model,
+            string featureName,
+            Utils.Logger logger)
+        {
+            try
+            {
+                model.ClearSelection2(true);
+                bool selected = model.Extension.SelectByID2(
+                    featureName,
+                    "BODYFEATURE",
+                    0,
+                    0,
+                    0,
+                    false,
+                    0,
+                    null,
+                    (int)SolidWorks.Interop.swconst.swSelectOption_e.swSelectOptionDefault);
+
+                if (!selected)
+                {
+                    AppendLog($"Undo: could not select feature '{featureName}'", Color.Orange);
+                    logger?.Warn($"Failed to select feature '{featureName}' for delete");
+                    return false;
+                }
+
+                model.EditDelete();
+                model.ClearSelection2(true);
+                model.ForceRebuild3(false);
+                logger?.Info($"Deleted feature '{featureName}'");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Undo: exception deleting feature '{featureName}': {ex.Message}", Color.Red);
+                logger?.Error($"Exception deleting feature '{featureName}': {ex.Message}");
+                return false;
+            }
+        }
+
+        private bool TryEditUndo(SolidWorks.Interop.sldworks.IModelDoc2 model, Utils.Logger logger)
+        {
+            try
+            {
+                dynamic dynModel = model;
+                bool result = dynModel.EditUndo2(1);
+                if (!result)
+                {
+                    logger?.Warn("EditUndo2 returned false");
+                }
+                return result;
+            }
+            catch (Exception ex)
+            {
+                logger?.Warn($"EditUndo2 threw exception: {ex.Message}");
+                try
+                {
+                    dynamic dynModel = model;
+                    bool result = dynModel.EditUndo();
+                    if (!result)
+                    {
+                        logger?.Warn("EditUndo returned false");
+                    }
+                    return result;
+                }
+                catch (Exception ex2)
+                {
+                    logger?.Error($"EditUndo failed: {ex2.Message}");
+                    return false;
+                }
+            }
         }
 
         /// <summary>
@@ -1314,6 +1855,14 @@ namespace TextToCad.SolidWorksAddin
             btnReplayEnd.Enabled = enabled;
             btnReplayLast.Enabled = enabled;
             btnOpenReplay.Enabled = enabled;
+            btnRunSelectedStep.Enabled = enabled;
+            btnRunCheckedSteps.Enabled = enabled;
+            btnRunNextStep.Enabled = enabled;
+            btnUndoLastStep.Enabled = enabled;
+            if (lstSteps != null)
+            {
+                lstSteps.Enabled = enabled;
+            }
             txtInstruction.Enabled = enabled;
             txtApiBase.Enabled = enabled;
             chkUseAI.Enabled = enabled;

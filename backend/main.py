@@ -1012,7 +1012,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     fillet_target = None
     if action == "fillet" or shape == "fillet":
         if re.search(r"\b(all|every)\s+(sharp\s+)?edges\b", instruction_lower) or \
-           re.search(r"\b(all|every)\s+corners\b", instruction_lower):
+           re.search(r"\b(all|every)\s+corners\b", instruction_lower) or \
+           re.search(r"\b(everything|entire\s+part|whole\s+part|all\s+around|all\s+sides|outer\s+edges|outside\s+edges)\b", instruction_lower):
             fillet_target = "all_edges"
         elif re.search(r"\b(last|recent|previous)\s+(feature|operation|op|extrude|cut)\b", instruction_lower) or \
              re.search(r"\b(last|recent|previous)\s+feature\b", instruction_lower):
@@ -1021,7 +1022,8 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     chamfer_target = None
     if action == "chamfer" or shape == "chamfer":
         if re.search(r"\b(all|every)\s+(sharp\s+)?edges\b", instruction_lower) or \
-           re.search(r"\b(all|every)\s+corners\b", instruction_lower):
+           re.search(r"\b(all|every)\s+corners\b", instruction_lower) or \
+           re.search(r"\b(everything|entire\s+part|whole\s+part|all\s+around|all\s+sides|outer\s+edges|outside\s+edges)\b", instruction_lower):
             chamfer_target = "all_edges"
         elif re.search(r"\b(last|recent|previous)\s+(feature|operation|op|extrude|cut)\b", instruction_lower) or \
              re.search(r"\b(last|recent|previous)\s+feature\b", instruction_lower):
@@ -1073,6 +1075,9 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
                 break
             except (ValueError, IndexError):
                 continue
+
+    if action in ["fillet", "chamfer"] or shape in ["fillet", "chamfer"]:
+        count = None
 
     # Pattern extraction
     pattern_type = None
