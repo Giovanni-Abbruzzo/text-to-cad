@@ -526,7 +526,7 @@ def _build_bike_operations(answers: Dict[str, Any]) -> Tuple[List[Dict[str, Any]
 
     wheel_height = max(tire_width, 12.0)
     head_tube_diameter = max(handlebar_width * 0.03, 14.0)
-    head_tube_height = max(frame_size * 0.3, 120.0)
+    head_tube_height = max(frame_size * 0.3, 120.0) * 3.0
     seatpost_diameter = max(head_tube_diameter * 0.7, 12.0)
     seatpost_height = max(frame_size * 0.35, 160.0)
 
@@ -540,7 +540,11 @@ def _build_bike_operations(answers: Dict[str, Any]) -> Tuple[List[Dict[str, Any]
     front_wheel_x = wheelbase / 2.0
     rear_wheel_x = -wheelbase / 2.0
     seatpost_x = rear_wheel_x + wheelbase * 0.4
-    headtube_x = front_wheel_x - wheel_diameter * 0.35
+    wheel_radius = wheel_diameter / 2.0
+    headtube_clearance = wheel_radius + (head_tube_diameter * 1.5)
+    headtube_preferred = front_wheel_x - headtube_clearance
+    frame_half = (frame_length / 2.0) - head_tube_diameter
+    headtube_x = min(headtube_preferred, frame_half)
     handlebar_center_y = (frame_thickness / 2.0) + head_tube_height + (handlebar_diameter / 2.0)
 
     instructions = [
@@ -582,13 +586,13 @@ def _build_bike_operations(answers: Dict[str, Any]) -> Tuple[List[Dict[str, Any]
             parameters["extrude_midplane"] = True
         elif index == 5:
             parameters["center_x_mm"] = rear_wheel_x
-            parameters["center_z_mm"] = 0.0
-            parameters["axis"] = "y"
+            parameters["center_y_mm"] = 0.0
+            parameters["axis"] = "z"
             parameters["extrude_midplane"] = True
         elif index == 6:
             parameters["center_x_mm"] = front_wheel_x
-            parameters["center_z_mm"] = 0.0
-            parameters["axis"] = "y"
+            parameters["center_y_mm"] = 0.0
+            parameters["axis"] = "z"
             parameters["extrude_midplane"] = True
 
         parsed_result["parameters"] = parameters
