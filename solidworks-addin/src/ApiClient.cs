@@ -10,7 +10,7 @@ namespace TextToCad.SolidWorksAddin
 {
     /// <summary>
     /// HTTP client for communicating with the FastAPI backend.
-    /// Handles all API calls to /dry_run and /process_instruction endpoints.
+        /// Handles all API calls to /dry_run, /process_instruction, and planner endpoints.
     /// </summary>
     public static class ApiClient
     {
@@ -90,6 +90,26 @@ namespace TextToCad.SolidWorksAddin
             catch (Exception ex)
             {
                 Logger.Error($"Process instruction failed for instruction: '{request.Instruction}'", ex);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Call the /plan endpoint to generate a plan and questions
+        /// </summary>
+        public static async Task<PlannerResponse> PlanAsync(PlannerRequest request)
+        {
+            Logger.Info($"Calling /plan (state_id={request?.StateId ?? "new"})");
+
+            try
+            {
+                var response = await PostJsonAsync<PlannerResponse>("/plan", request);
+                Logger.Info($"Planner response: status={response?.Status}, questions={response?.Questions?.Count ?? 0}");
+                return response;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Planner request failed", ex);
                 throw;
             }
         }

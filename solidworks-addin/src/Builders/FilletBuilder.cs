@@ -128,47 +128,49 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            var allEdges = new List<IEdge>();
+            _log.Info($"Found {bodies.Length} solid body(ies)");
+
+            bool allSucceeded = true;
+            int bodyIndex = 0;
 
             foreach (object bodyObj in bodies)
             {
+                bodyIndex++;
                 IBody2 body = (IBody2)bodyObj;
                 object[] edges = (object[])body.GetEdges();
 
-                if (edges != null && edges.Length > 0)
+                if (edges == null || edges.Length == 0)
                 {
-                    allEdges.AddRange(edges.Cast<IEdge>());
+                    _log.Warn($"Body {bodyIndex} has no edges - skipping");
+                    continue;
+                }
+
+                IEdge[] targetEdges;
+                if (angleThresholdDeg > 0)
+                {
+                    targetEdges = edges.Cast<IEdge>().Where(e => IsSharpEdge(e, angleThresholdDeg)).ToArray();
+                    _log.Info($"Body {bodyIndex}: {targetEdges.Length} sharp edges (> {angleThresholdDeg} deg)");
+                }
+                else
+                {
+                    targetEdges = edges.Cast<IEdge>().ToArray();
+                }
+
+                if (targetEdges.Length == 0)
+                {
+                    _log.Warn($"Body {bodyIndex} has no edges to fillet after filtering");
+                    continue;
+                }
+
+                _log.Info($"Body {bodyIndex}: applying fillet to {targetEdges.Length} edges");
+
+                if (!ApplyFilletToEdges(model, targetEdges, radiusMm))
+                {
+                    allSucceeded = false;
                 }
             }
 
-            if (allEdges.Count == 0)
-            {
-                _log.Warn("No edges found in model");
-                return false;
-            }
-
-            _log.Info($"Found {allEdges.Count} total edges");
-
-            // Filter by angle if threshold specified
-            IEdge[] targetEdges;
-            if (angleThresholdDeg > 0)
-            {
-                targetEdges = allEdges.Where(e => IsSharpEdge(e, angleThresholdDeg)).ToArray();
-                _log.Info($"Filtered to {targetEdges.Length} sharp edges (> {angleThresholdDeg} deg)");
-            }
-            else
-            {
-                targetEdges = allEdges.ToArray();
-            }
-
-            if (targetEdges.Length == 0)
-            {
-                _log.Warn("No edges to fillet after filtering");
-                return false;
-            }
-
-            // Apply fillet to filtered edges
-            return ApplyFilletToEdges(model, targetEdges, radiusMm);
+            return allSucceeded;
         }
 
         /// <summary>

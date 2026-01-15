@@ -257,6 +257,8 @@ namespace TextToCad.SolidWorksAddin.Controllers
                 double widthMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
                 double lengthMm = data.LengthMm ?? data.WidthMm ?? data.DiameterMm ?? widthMm;
                 double thicknessMm = data.HeightMm ?? data.DepthMm ?? 6.0;
+                double? centerXmm = data.CenterXmm;
+                double? centerYmm = data.CenterYmm;
 
                 _log.Info($"Creating base plate: {lengthMm}x{widthMm}x{thicknessMm} mm");
 
@@ -269,7 +271,9 @@ namespace TextToCad.SolidWorksAddin.Controllers
                     lengthMm,
                     data.DraftAngleDeg,
                     data.DraftOutward,
-                    data.FlipDirection
+                    data.FlipDirection,
+                    centerXmm,
+                    centerYmm
                 );
             }
             catch (Exception ex)
@@ -288,6 +292,9 @@ namespace TextToCad.SolidWorksAddin.Controllers
             {
                 double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 20.0);
                 double heightMm = data.HeightMm ?? data.DepthMm ?? 30.0;
+                double? centerXmm = data.CenterXmm;
+                double? centerYmm = data.CenterYmm;
+                double? centerZmm = data.CenterZmm;
 
                 _log.Info($"Creating cylinder: diameter={diameterMm} mm, height={heightMm} mm");
 
@@ -298,7 +305,10 @@ namespace TextToCad.SolidWorksAddin.Controllers
                     heightMm,
                     data.DraftAngleDeg,
                     data.DraftOutward,
-                    data.FlipDirection
+                    data.FlipDirection,
+                    centerXmm,
+                    centerYmm,
+                    centerZmm
                 );
             }
             catch (Exception ex)

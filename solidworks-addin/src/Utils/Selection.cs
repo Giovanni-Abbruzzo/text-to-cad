@@ -250,6 +250,114 @@ namespace TextToCad.SolidWorksAddin.Utils
         }
 
         /// <summary>
+        /// Find the topmost planar face that contains a target X/Z location.
+        /// Useful for placing sketches on the top of a specific body when multiple bodies exist.
+        /// </summary>
+        /// <param name="model">Model document (must be a Part)</param>
+        /// <param name="xMm">Target X coordinate in millimeters</param>
+        /// <param name="zMm">Target Z coordinate in millimeters</param>
+        /// <param name="logger">Optional logger for diagnostics</param>
+        /// <param name="toleranceMm">Bounding box tolerance in millimeters</param>
+        /// <returns>The topmost planar face at the location, or null if none found</returns>
+        public static IFace2 GetTopMostPlanarFaceAt(
+            IModelDoc2 model,
+            double xMm,
+            double zMm,
+            ILogger logger = null,
+            double toleranceMm = 0.1)
+        {
+            if (model == null)
+            {
+                logger?.Error("GetTopMostPlanarFaceAt: model is null");
+                return null;
+            }
+
+            try
+            {
+                if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
+                {
+                    logger?.Warn($"GetTopMostPlanarFaceAt: Document type is {model.GetType()}, not Part");
+                    return null;
+                }
+
+                IPartDoc partDoc = (IPartDoc)model;
+                object[] bodies = (object[])partDoc.GetBodies2(
+                    (int)swBodyType_e.swSolidBody,
+                    true
+                );
+
+                if (bodies == null || bodies.Length == 0)
+                {
+                    logger?.Warn("GetTopMostPlanarFaceAt: No solid bodies found");
+                    return null;
+                }
+
+                double x = Units.MmToM(xMm);
+                double z = Units.MmToM(zMm);
+                double tol = Units.MmToM(toleranceMm);
+
+                logger?.Info($"Searching for top planar face at X={xMm} mm, Z={zMm} mm");
+
+                IFace2 topFace = null;
+                double maxY = double.MinValue;
+
+                foreach (object bodyObj in bodies)
+                {
+                    IBody2 body = bodyObj as IBody2;
+                    if (body == null) continue;
+
+                    object[] faces = (object[])body.GetFaces();
+                    if (faces == null) continue;
+
+                    foreach (object faceObj in faces)
+                    {
+                        IFace2 face = faceObj as IFace2;
+                        if (face == null) continue;
+
+                        ISurface surface = face.GetSurface() as ISurface;
+                        if (surface == null || !surface.IsPlane())
+                            continue;
+
+                        double[] box = (double[])face.GetBox();
+                        if (box == null || box.Length < 6)
+                            continue;
+
+                        double xMin = box[0] - tol;
+                        double xMax = box[3] + tol;
+                        double zMin = box[2] - tol;
+                        double zMax = box[5] + tol;
+
+                        if (x < xMin || x > xMax || z < zMin || z > zMax)
+                            continue;
+
+                        double centerY = (box[1] + box[4]) / 2.0;
+                        if (centerY > maxY)
+                        {
+                            maxY = centerY;
+                            topFace = face;
+                        }
+                    }
+                }
+
+                if (topFace != null)
+                {
+                    logger?.Info($"Found topmost planar face at location (Y={Units.MToMm(maxY):F2} mm)");
+                }
+                else
+                {
+                    logger?.Warn("No planar face found at target location");
+                }
+
+                return topFace;
+            }
+            catch (Exception ex)
+            {
+                logger?.Error($"Exception finding planar face at location: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Select a specific face in the model.
         /// </summary>
         /// <param name="model">Model document containing the face</param>

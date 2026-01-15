@@ -75,7 +75,10 @@ namespace TextToCad.SolidWorksAddin.Builders
             double? lengthMm = null,
             double? draftAngleDeg = null,
             bool? draftOutward = null,
-            bool? flipDirection = null)
+            bool? flipDirection = null,
+            double? centerXmm = null,
+            double? centerYmm = null,
+            bool? extrudeMidplane = null)
         {
             if (model == null)
             {
@@ -137,12 +140,17 @@ namespace TextToCad.SolidWorksAddin.Builders
             bool useDraft = sanitizedDraftAngleDeg.HasValue;
             bool draftOut = draftOutward ?? false;
             bool flip = flipDirection ?? false;
+            bool midPlane = extrudeMidplane ?? false;
 
             _log.Info($"Creating base plate (width={actualWidthMm}mm, length={actualLengthMm}mm, thickness={thicknessMm}mm)");
             if (useDraft)
                 _log.Info($"  Draft: {sanitizedDraftAngleDeg} deg, outward={draftOut}");
             if (flip)
                 _log.Info("  Flip direction: true");
+            if (midPlane)
+                _log.Info("  Midplane: true");
+            if (centerXmm.HasValue || centerYmm.HasValue)
+                _log.Info($"  Center: ({centerXmm ?? 0} mm, {centerYmm ?? 0} mm)");
 
             using (var scope = new UndoScope(model, "Create Base Plate", _log))
             {
@@ -172,13 +180,16 @@ namespace TextToCad.SolidWorksAddin.Builders
                     double halfWidthM = widthM / 2.0;
                     double halfLengthM = lengthM / 2.0;
 
+                    double centerX = Units.MmToM(centerXmm ?? 0.0);
+                    double centerY = Units.MmToM(centerYmm ?? 0.0);
+
                     _log.Info($"Creating center rectangle ({actualLengthMm}x{actualWidthMm} mm)...");
-                    _log.Info($"  Center: (0, 0, 0), Half-size: {halfLengthM:F6} x {halfWidthM:F6} meters");
+                    _log.Info($"  Center: ({centerXmm ?? 0} mm, {centerYmm ?? 0} mm), Half-size: {halfLengthM:F6} x {halfWidthM:F6} meters");
 
                     object rectObj = model.SketchManager.CreateCenterRectangle(
-                        0, 0, 0,
-                        halfLengthM,
-                        halfWidthM,
+                        centerX, centerY, 0,
+                        centerX + halfLengthM,
+                        centerY + halfWidthM,
                         0
                     );
 
@@ -188,8 +199,8 @@ namespace TextToCad.SolidWorksAddin.Builders
                         _log.Error("Attempting alternative: CreateCornerRectangle...");
 
                         rectObj = model.SketchManager.CreateCornerRectangle(
-                            -halfLengthM, -halfWidthM, 0,
-                            halfLengthM, halfWidthM, 0
+                            centerX - halfLengthM, centerY - halfWidthM, 0,
+                            centerX + halfLengthM, centerY + halfWidthM, 0
                         );
 
                         if (rectObj == null)
@@ -218,11 +229,15 @@ namespace TextToCad.SolidWorksAddin.Builders
 
                     double draftAngleRad = useDraft ? (sanitizedDraftAngleDeg.Value * Math.PI / 180.0) : 0.0;
 
+                    int endCondition = midPlane
+                        ? (int)swEndConditions_e.swEndCondMidPlane
+                        : (int)swEndConditions_e.swEndCondBlind;
+
                     IFeature feature = model.FeatureManager.FeatureExtrusion(
                         true,              // SD: Single direction
                         flip,              // Flip: Flip direction
                         false,             // Dir: Direction (not used for blind)
-                        (int)swEndConditions_e.swEndCondBlind,  // T1: Blind extrusion
+                        endCondition,      // T1: End condition
                         0,                 // T2: Not used (single direction)
                         thicknessM,        // D1: Depth in meters
                         0.0,               // D2: Not used
@@ -265,6 +280,193 @@ namespace TextToCad.SolidWorksAddin.Builders
                 catch (Exception ex)
                 {
                     _log.Error($"Exception creating base plate: {ex.Message}");
+                    _log.Error($"Stack trace: {ex.StackTrace}");
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Create a rectangular plate on the topmost face at a specific X/Z location.
+        /// Unlike EnsureBasePlate, this method does not skip when bodies already exist.
+        /// </summary>
+        public bool CreatePlateOnTopFace(
+            IModelDoc2 model,
+            double widthMm,
+            double lengthMm,
+            double thicknessMm,
+            double? centerXmm = null,
+            double? centerZmm = null,
+            double? draftAngleDeg = null,
+            bool? draftOutward = null,
+            bool? flipDirection = null,
+            bool? extrudeMidplane = null)
+        {
+            if (model == null)
+            {
+                _log.Error("CreatePlateOnTopFace: model is null");
+                return false;
+            }
+
+            if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
+            {
+                _log.Error("CreatePlateOnTopFace only works with Part documents");
+                return false;
+            }
+
+            if (widthMm <= 0 || lengthMm <= 0 || thicknessMm <= 0)
+            {
+                _log.Error($"Invalid plate dimensions: {lengthMm}x{widthMm}x{thicknessMm} mm");
+                return false;
+            }
+
+            double? sanitizedDraftAngleDeg = null;
+            if (draftAngleDeg.HasValue)
+            {
+                if (draftAngleDeg.Value <= 0)
+                {
+                    _log.Warn($"Draft angle must be > 0 deg; ignoring value {draftAngleDeg.Value}");
+                }
+                else if (draftAngleDeg.Value >= 89)
+                {
+                    _log.Warn($"Draft angle too large; capping to 89 deg (requested {draftAngleDeg.Value})");
+                    sanitizedDraftAngleDeg = 89.0;
+                }
+                else
+                {
+                    sanitizedDraftAngleDeg = draftAngleDeg.Value;
+                }
+            }
+
+            bool useDraft = sanitizedDraftAngleDeg.HasValue;
+            bool draftOut = draftOutward ?? false;
+            bool flip = flipDirection ?? false;
+            bool midPlane = extrudeMidplane ?? false;
+
+            _log.Info($"Creating top plate (width={widthMm}mm, length={lengthMm}mm, thickness={thicknessMm}mm)");
+            if (useDraft)
+                _log.Info($"  Draft: {sanitizedDraftAngleDeg} deg, outward={draftOut}");
+            if (flip)
+                _log.Info("  Flip direction: true");
+            if (midPlane)
+                _log.Info("  Midplane: true");
+            if (centerXmm.HasValue || centerZmm.HasValue)
+                _log.Info($"  Center: ({centerXmm ?? 0} mm, {centerZmm ?? 0} mm)");
+
+            using (var scope = new UndoScope(model, "Create Top Plate", _log))
+            {
+                try
+                {
+                    double targetXmm = centerXmm ?? 0.0;
+                    double targetZmm = centerZmm ?? 0.0;
+
+                    _log.Info("Finding topmost planar face at target location...");
+                    IFace2 topFace = Selection.GetTopMostPlanarFaceAt(model, targetXmm, targetZmm, _log);
+                    if (topFace == null)
+                    {
+                        _log.Warn("No planar face found at location - falling back to global top face");
+                        topFace = Selection.GetTopMostPlanarFace(model, _log);
+                    }
+
+                    if (topFace == null)
+                    {
+                        _log.Error("Failed to find a planar face for top plate");
+                        return false;
+                    }
+
+                    if (!Selection.SelectFace(model, topFace, false, _log))
+                    {
+                        _log.Error("Failed to select top face for plate");
+                        return false;
+                    }
+
+                    _log.Info("Starting sketch on top face...");
+                    model.SketchManager.InsertSketch(true);
+
+                    if (model.SketchManager.ActiveSketch == null)
+                    {
+                        _log.Error("Failed to activate sketch on top face");
+                        return false;
+                    }
+
+                    model.ClearSelection2(true);
+                    _log.Info("Sketch active on top face");
+
+                    double widthM = Units.MmToM(widthMm);
+                    double lengthM = Units.MmToM(lengthMm);
+                    double halfWidthM = widthM / 2.0;
+                    double halfLengthM = lengthM / 2.0;
+
+                    double centerX = Units.MmToM(targetXmm);
+                    double centerZ = Units.MmToM(targetZmm);
+
+                    _log.Info($"Creating center rectangle ({lengthMm}x{widthMm} mm)...");
+                    _log.Info($"  Center: ({targetXmm} mm, {targetZmm} mm)");
+
+                    object rectObj = model.SketchManager.CreateCenterRectangle(
+                        centerX, centerZ, 0,
+                        centerX + halfLengthM,
+                        centerZ + halfWidthM,
+                        0
+                    );
+
+                    if (rectObj == null)
+                    {
+                        _log.Error("CreateCenterRectangle returned null - plate sketch failed");
+                        return false;
+                    }
+
+                    _log.Info("Plate rectangle created successfully");
+
+                    _log.Info("Exiting sketch...");
+                    model.SketchManager.InsertSketch(true);
+
+                    double thicknessM = Units.MmToM(thicknessMm);
+                    double draftAngleRad = useDraft ? (sanitizedDraftAngleDeg.Value * Math.PI / 180.0) : 0.0;
+
+                    int endCondition = midPlane
+                        ? (int)swEndConditions_e.swEndCondMidPlane
+                        : (int)swEndConditions_e.swEndCondBlind;
+
+                    _log.Info($"Creating boss-extrude (thickness={thicknessMm} mm)...");
+
+                    IFeature feature = model.FeatureManager.FeatureExtrusion(
+                        true,
+                        flip,
+                        false,
+                        endCondition,
+                        0,
+                        thicknessM,
+                        0.0,
+                        draftOut,
+                        false,
+                        false,
+                        useDraft,
+                        draftAngleRad,
+                        0.0,
+                        false,
+                        false,
+                        false,
+                        false,
+                        false,
+                        false,
+                        false
+                    ) as IFeature;
+
+                    if (feature == null)
+                    {
+                        _log.Error("FeatureExtrusion returned null - top plate extrusion failed");
+                        return false;
+                    }
+
+                    _log.Info($"Top plate created successfully: '{feature.Name}'");
+                    model.ForceRebuild3(false);
+                    scope.Commit();
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    _log.Error($"Exception creating top plate: {ex.Message}");
                     _log.Error($"Stack trace: {ex.StackTrace}");
                     return false;
                 }

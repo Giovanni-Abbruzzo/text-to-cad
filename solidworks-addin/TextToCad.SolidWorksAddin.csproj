@@ -81,6 +81,8 @@
     <Compile Include="src\Models\InstructionRequest.cs" />
     <Compile Include="src\Models\InstructionResponse.cs" />
     <Compile Include="src\Models\ParsedParameters.cs" />
+    <Compile Include="src\Models\PlannerRequest.cs" />
+    <Compile Include="src\Models\PlannerResponse.cs" />
     <Compile Include="src\Models\ReplayEntry.cs" />
     <Compile Include="src\Properties\AssemblyInfo.cs" />
     <!-- Sprint SW-2: Utility Helpers -->
