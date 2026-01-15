@@ -142,6 +142,8 @@ Perfect for showcasing the system:
 - **`GET /`** - API information and available endpoints
 - **`POST /process_instruction`** - Process natural language CAD instructions and save to database
 - **`POST /dry_run`** - Preview instruction parsing without saving (plan preview)
+- **`POST /plan`** - Planner workflow (plan + questions + state_id)
+- **`GET /plan/{state_id}`** - Fetch planner state for resume
 - **`POST /generate_model`** - Generate 3D CAD models and export files
 - **`GET /commands`** - Retrieve command history
 - **`GET /config`** - View current configuration (excludes sensitive data)
@@ -355,6 +357,60 @@ Preview instruction parsing **without** saving to database or executing operatio
 
 ---
 
+#### POST /plan
+Planner workflow for high-level requests with question/answer loop and persistent state.
+
+**Request Body:**
+```json
+{
+  "instruction": "make a mountain bike",
+  "use_ai": false
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "schema_version": "1.0",
+  "instruction": "make a mountain bike",
+  "state_id": "7f3d2a3f8a2b4f1b9c7d3d6c2e9f1a12",
+  "status": "awaiting_answers",
+  "plan": [
+    "Define frame geometry and size",
+    "Define wheel dimensions",
+    "Define handlebar and seatpost dimensions",
+    "Create simplified frame solid",
+    "Create wheel solids (placeholder)",
+    "Assemble and validate overall proportions"
+  ],
+  "questions": [
+    { "id": "frame_size_mm", "prompt": "Frame size in mm (e.g., 450)" },
+    { "id": "wheel_diameter_mm", "prompt": "Wheel diameter in mm (e.g., 650)" }
+  ],
+  "answers": {},
+  "operations": [],
+  "notes": []
+}
+```
+
+**Submit Answers (resume):**
+```json
+{
+  "state_id": "7f3d2a3f8a2b4f1b9c7d3d6c2e9f1a12",
+  "answers": {
+    "frame_size_mm": 450,
+    "wheel_diameter_mm": 650
+  }
+}
+```
+
+---
+
+#### GET /plan/{state_id}
+Fetch a planner state for resuming later.
+
+---
+
 ### Field Definitions
 
 #### schema_version
@@ -384,6 +440,7 @@ Preview instruction parsing **without** saving to database or executing operatio
 - **Guarantee**: All fields always present (never omitted)
 - **Null Handling**: Undetected/unspecified parameters are explicitly `null`
 - **Unit Convention**: All numeric dimensions in millimeters (indicated by `_mm` suffix)
+- **Positioning**: `center_x_mm`, `center_y_mm`, `center_z_mm` optionally place geometry away from origin
 
 ---
 

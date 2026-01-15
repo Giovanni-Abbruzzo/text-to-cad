@@ -76,6 +76,12 @@ Return ONLY valid JSON matching this exact schema:
       "length_mm": number | null,
       "depth_mm": number | null,
       "radius_mm": number | null,
+      "center_x_mm": number | null,
+      "center_y_mm": number | null,
+      "center_z_mm": number | null,
+      "axis": "x" | "y" | "z" | null,
+      "use_top_face": boolean | null,
+      "extrude_midplane": boolean | null,
       "angle_deg": number | null,
       "draft_angle_deg": number | null,
       "draft_outward": boolean | null,
@@ -102,6 +108,10 @@ Rules:
 - Height mapping: Map "height", "tall", "high", "thick", "thickness" to height_mm field
 - Width/length/depth mapping: Use width_mm, length_mm, depth_mm when explicit
 - Radius mapping: Map "radius" to radius_mm (leave diameter_mm null unless explicitly stated)
+- Position mapping: If instruction specifies coordinates (x/y/z), set center_x_mm/center_y_mm/center_z_mm
+- Axis mapping: If instruction specifies axis (x, y, z) for a cylinder, set axis
+- Top-face mapping: If instruction says "on top face" or "on top", set use_top_face = true
+- Midplane mapping: If instruction says "midplane" or "centered", set extrude_midplane = true
 - Draft mapping: If instruction mentions draft or taper, set draft_angle_deg and draft_outward when specified
 - Flip mapping: If instruction mentions flip/reverse direction, set flip_direction = true
 - Fillet target mapping: If instruction mentions all edges or all sharp edges, set fillet_target = "all_edges"; if it mentions last/recent feature, set fillet_target = "recent_feature"

@@ -19,6 +19,15 @@ namespace TextToCad.SolidWorksAddin.Models
 
         [JsonProperty("radius_mm")]
         public double? RadiusMm { get; set; }
+
+        [JsonProperty("center_x_mm")]
+        public double? CenterXmm { get; set; }
+
+        [JsonProperty("center_y_mm")]
+        public double? CenterYmm { get; set; }
+
+        [JsonProperty("center_z_mm")]
+        public double? CenterZmm { get; set; }
     }
 
     /// <summary>
@@ -43,6 +52,24 @@ namespace TextToCad.SolidWorksAddin.Models
 
         [JsonProperty("radius_mm")]
         public double? RadiusMm { get; set; }
+
+        [JsonProperty("center_x_mm")]
+        public double? CenterXmm { get; set; }
+
+        [JsonProperty("center_y_mm")]
+        public double? CenterYmm { get; set; }
+
+        [JsonProperty("center_z_mm")]
+        public double? CenterZmm { get; set; }
+
+        [JsonProperty("axis")]
+        public string Axis { get; set; }
+
+        [JsonProperty("use_top_face")]
+        public bool? UseTopFace { get; set; }
+
+        [JsonProperty("extrude_midplane")]
+        public bool? ExtrudeMidplane { get; set; }
 
         [JsonProperty("depth_mm")]
         public double? DepthMm { get; set; }
@@ -147,6 +174,23 @@ namespace TextToCad.SolidWorksAddin.Models
 
             if (ParametersData.RadiusMm.HasValue)
                 parts.Add($"Radius: {ParametersData.RadiusMm.Value} mm");
+
+            if (ParametersData.CenterXmm.HasValue || ParametersData.CenterYmm.HasValue || ParametersData.CenterZmm.HasValue)
+            {
+                string cx = ParametersData.CenterXmm.HasValue ? ParametersData.CenterXmm.Value.ToString() : "?";
+                string cy = ParametersData.CenterYmm.HasValue ? ParametersData.CenterYmm.Value.ToString() : "?";
+                string cz = ParametersData.CenterZmm.HasValue ? ParametersData.CenterZmm.Value.ToString() : "?";
+                parts.Add($"Center: ({cx}, {cy}, {cz}) mm");
+            }
+
+            if (!string.IsNullOrWhiteSpace(ParametersData.Axis))
+                parts.Add($"Axis: {ParametersData.Axis}");
+
+            if (ParametersData.UseTopFace.HasValue)
+                parts.Add($"Use Top Face: {ParametersData.UseTopFace.Value}");
+
+            if (ParametersData.ExtrudeMidplane.HasValue)
+                parts.Add($"Midplane: {ParametersData.ExtrudeMidplane.Value}");
 
             if (ParametersData.AngleDeg.HasValue)
                 parts.Add($"Angle: {ParametersData.AngleDeg.Value} deg");

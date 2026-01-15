@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { processInstruction, fetchCommands, startJob, fetchJob } from './api.js'
+import { processInstruction, fetchCommands, startJob, fetchJob, planInstruction } from './api.js'
 
 function App() {
   const [instruction, setInstruction] = useState('')
@@ -7,6 +7,9 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [history, setHistory] = useState([])
   const [useAI, setUseAI] = useState(false)
+  const [plannerResponse, setPlannerResponse] = useState(null)
+  const [plannerAnswers, setPlannerAnswers] = useState('')
+  const [plannerLoading, setPlannerLoading] = useState(false)
   
   // Job management state
   const [currentJob, setCurrentJob] = useState(null) // { job_id, status, progress, error }
@@ -114,6 +117,83 @@ function App() {
         pollingIntervalRef.current = null
       }
     }, 600) // Poll every 600ms
+  }
+
+  const buildPlannerAnswerTemplate = (responseData) => {
+    if (!responseData?.questions || responseData.questions.length === 0) {
+      return ''
+    }
+    return responseData.questions.map((q) => `${q.id}=`).join('\n')
+  }
+
+  const parsePlannerAnswerText = (text) => {
+    const answers = {}
+    if (!text) {
+      return answers
+    }
+
+    const entries = text.replace(/\r/g, '\n').split(/[\n;]+/).map((line) => line.trim()).filter(Boolean)
+    for (const entry of entries) {
+      const parts = entry.split(/[:=]/, 2)
+      if (parts.length !== 2) {
+        continue
+      }
+      const key = parts[0].trim()
+      const value = parts[1].trim()
+      if (!key || !value) {
+        continue
+      }
+      answers[key] = value
+    }
+    return answers
+  }
+
+  const handlePlan = async () => {
+    setPlannerLoading(true)
+    setPlannerResponse(null)
+
+    try {
+      const data = await planInstruction({
+        instruction,
+        use_ai: useAI
+      })
+      setPlannerResponse(data)
+      setPlannerAnswers(buildPlannerAnswerTemplate(data))
+    } catch (error) {
+      console.error('Planner error:', error)
+      alert(`Failed to plan instruction: ${error.message}`)
+    } finally {
+      setPlannerLoading(false)
+    }
+  }
+
+  const handleSubmitPlannerAnswers = async () => {
+    if (!plannerResponse?.state_id) {
+      alert('Planner is idle. Click Plan first.')
+      return
+    }
+
+    const answers = parsePlannerAnswerText(plannerAnswers)
+    if (Object.keys(answers).length === 0) {
+      alert('Please provide answers in key=value format.')
+      return
+    }
+
+    setPlannerLoading(true)
+    try {
+      const data = await planInstruction({
+        state_id: plannerResponse.state_id,
+        answers,
+        use_ai: useAI
+      })
+      setPlannerResponse(data)
+      setPlannerAnswers(buildPlannerAnswerTemplate(data))
+    } catch (error) {
+      console.error('Planner update error:', error)
+      alert(`Failed to submit answers: ${error.message}`)
+    } finally {
+      setPlannerLoading(false)
+    }
   }
 
   return (
@@ -235,7 +315,27 @@ function App() {
           </label>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+          <button
+            onClick={handlePlan}
+            disabled={plannerLoading || !instruction.trim()}
+            style={{
+              padding: '14px 24px',
+              fontSize: '15px',
+              fontWeight: '600',
+              backgroundColor: plannerLoading ? '#6c757d' : '#495057',
+              color: 'white',
+              border: 'none',
+              borderRadius: '8px',
+              cursor: plannerLoading ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit',
+              transition: 'all 0.2s ease',
+              minWidth: '120px',
+              boxShadow: '0 2px 4px rgba(73,80,87,0.3)'
+            }}
+          >
+            {plannerLoading ? 'Planning...' : 'Plan'}
+          </button>
           <button
             onClick={handleSend}
             disabled={loading || !instruction.trim() || (currentJob && currentJob.status === 'running')}
@@ -272,6 +372,143 @@ function App() {
           </button>
         </div>
       </div>
+
+      {/* Planner Section */}
+      {plannerResponse && (
+        <div style={{
+          backgroundColor: 'white',
+          padding: '24px',
+          borderRadius: '12px',
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          border: '1px solid #e9ecef',
+          marginBottom: '20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{
+              margin: '0 0 16px 0',
+              color: '#212529',
+              fontSize: '1.5rem',
+              fontWeight: '600'
+            }}>
+              Planner
+            </h2>
+            <span style={{
+              fontSize: '0.85rem',
+              color: '#6c757d',
+              fontWeight: '500'
+            }}>
+              State: {plannerResponse.state_id} ({plannerResponse.status})
+            </span>
+          </div>
+
+          {plannerResponse.plan && plannerResponse.plan.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{
+                fontSize: '1.1rem',
+                marginBottom: '8px',
+                color: '#495057',
+                fontWeight: '600'
+              }}>
+                Plan
+              </h3>
+              <ol style={{
+                margin: 0,
+                paddingLeft: '20px',
+                color: '#495057',
+                backgroundColor: '#f8f9fa',
+                border: '1px solid #e9ecef',
+                borderRadius: '10px',
+                padding: '12px 16px'
+              }}>
+                {plannerResponse.plan.map((step, index) => (
+                  <li key={`${index}-${step}`} style={{ marginBottom: '6px' }}>
+                    {step}
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+
+          {plannerResponse.questions && plannerResponse.questions.length > 0 && (
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{
+                fontSize: '1.1rem',
+                marginBottom: '8px',
+                color: '#495057',
+                fontWeight: '600'
+              }}>
+                Questions
+              </h3>
+              <ul style={{
+                margin: 0,
+                paddingLeft: '20px',
+                color: '#495057'
+              }}>
+                {plannerResponse.questions.map((q) => (
+                  <li key={q.id} style={{ marginBottom: '6px' }}>
+                    <strong>{q.id}</strong>: {q.prompt}
+                  </li>
+                ))}
+              </ul>
+
+              <div style={{ marginTop: '12px' }}>
+                <textarea
+                  value={plannerAnswers}
+                  onChange={(e) => setPlannerAnswers(e.target.value)}
+                  placeholder="Answer in key=value format, one per line"
+                  style={{
+                    width: '100%',
+                    minHeight: '80px',
+                    padding: '10px',
+                    borderRadius: '8px',
+                    border: '1px solid #e9ecef',
+                    fontFamily: 'Monaco, Consolas, monospace',
+                    fontSize: '13px',
+                    boxSizing: 'border-box'
+                  }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
+                  <button
+                    onClick={handleSubmitPlannerAnswers}
+                    disabled={plannerLoading}
+                    style={{
+                      padding: '10px 16px',
+                      fontSize: '14px',
+                      fontWeight: '600',
+                      backgroundColor: plannerLoading ? '#6c757d' : '#17a2b8',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '8px',
+                      cursor: plannerLoading ? 'not-allowed' : 'pointer',
+                      fontFamily: 'inherit'
+                    }}
+                  >
+                    {plannerLoading ? 'Submitting...' : 'Submit Answers'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {plannerResponse.notes && plannerResponse.notes.length > 0 && (
+            <div style={{ marginBottom: '8px' }}>
+              <h3 style={{
+                fontSize: '1rem',
+                marginBottom: '6px',
+                color: '#495057',
+                fontWeight: '600'
+              }}>
+                Notes
+              </h3>
+              <ul style={{ margin: 0, paddingLeft: '20px', color: '#6c757d' }}>
+                {plannerResponse.notes.map((note, index) => (
+                  <li key={`${index}-${note}`}>{note}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Job Status Section */}
       {currentJob && (

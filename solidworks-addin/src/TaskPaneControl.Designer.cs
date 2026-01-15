@@ -33,10 +33,16 @@ namespace TextToCad.SolidWorksAddin
             this.lblInstruction = new System.Windows.Forms.Label();
             this.txtInstruction = new System.Windows.Forms.TextBox();
             this.chkUseAI = new System.Windows.Forms.CheckBox();
+            this.btnPlan = new System.Windows.Forms.Button();
             this.btnPreview = new System.Windows.Forms.Button();
             this.btnExecute = new System.Windows.Forms.Button();
             this.grpPlan = new System.Windows.Forms.GroupBox();
             this.txtPlan = new System.Windows.Forms.TextBox();
+            this.grpPlanner = new System.Windows.Forms.GroupBox();
+            this.lblPlannerState = new System.Windows.Forms.Label();
+            this.txtPlannerQuestions = new System.Windows.Forms.TextBox();
+            this.txtPlannerAnswers = new System.Windows.Forms.TextBox();
+            this.btnPlannerSubmit = new System.Windows.Forms.Button();
             this.grpSteps = new System.Windows.Forms.GroupBox();
             this.lstSteps = new System.Windows.Forms.CheckedListBox();
             this.btnRunSelectedStep = new System.Windows.Forms.Button();
@@ -67,6 +73,7 @@ namespace TextToCad.SolidWorksAddin
             this.btnTestUndo = new System.Windows.Forms.Button();
             this.lblStatus = new System.Windows.Forms.Label();
             this.grpPlan.SuspendLayout();
+            this.grpPlanner.SuspendLayout();
             this.grpSteps.SuspendLayout();
             this.grpLog.SuspendLayout();
             this.grpSettings.SuspendLayout();
@@ -128,17 +135,31 @@ namespace TextToCad.SolidWorksAddin
             this.chkUseAI.Text = "Use AI parsing (requires API key)";
             this.chkUseAI.UseVisualStyleBackColor = true;
             // 
+            // btnPlan
+            // 
+            this.btnPlan.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(108)))), ((int)(((byte)(117)))), ((int)(((byte)(125)))));
+            this.btnPlan.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            this.btnPlan.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.btnPlan.ForeColor = System.Drawing.Color.White;
+            this.btnPlan.Location = new System.Drawing.Point(10, 180);
+            this.btnPlan.Name = "btnPlan";
+            this.btnPlan.Size = new System.Drawing.Size(100, 35);
+            this.btnPlan.TabIndex = 5;
+            this.btnPlan.Text = "Plan";
+            this.btnPlan.UseVisualStyleBackColor = false;
+            this.btnPlan.Click += new System.EventHandler(this.btnPlan_Click);
+            // 
             // btnPreview
             // 
             this.btnPreview.BackColor = System.Drawing.Color.FromArgb(((int)(((byte)(0)))), ((int)(((byte)(120)))), ((int)(((byte)(215)))));
             this.btnPreview.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnPreview.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.btnPreview.ForeColor = System.Drawing.Color.White;
-            this.btnPreview.Location = new System.Drawing.Point(10, 180);
+            this.btnPreview.Location = new System.Drawing.Point(120, 180);
             this.btnPreview.Name = "btnPreview";
-            this.btnPreview.Size = new System.Drawing.Size(160, 35);
-            this.btnPreview.TabIndex = 5;
-            this.btnPreview.Text = "Preview (Dry Run)";
+            this.btnPreview.Size = new System.Drawing.Size(100, 35);
+            this.btnPreview.TabIndex = 6;
+            this.btnPreview.Text = "Preview";
             this.btnPreview.UseVisualStyleBackColor = false;
             this.btnPreview.Click += new System.EventHandler(this.btnPreview_Click);
             // 
@@ -148,10 +169,10 @@ namespace TextToCad.SolidWorksAddin
             this.btnExecute.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
             this.btnExecute.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
             this.btnExecute.ForeColor = System.Drawing.Color.White;
-            this.btnExecute.Location = new System.Drawing.Point(180, 180);
+            this.btnExecute.Location = new System.Drawing.Point(230, 180);
             this.btnExecute.Name = "btnExecute";
-            this.btnExecute.Size = new System.Drawing.Size(160, 35);
-            this.btnExecute.TabIndex = 6;
+            this.btnExecute.Size = new System.Drawing.Size(100, 35);
+            this.btnExecute.TabIndex = 7;
             this.btnExecute.Text = "Execute";
             this.btnExecute.UseVisualStyleBackColor = false;
             this.btnExecute.Click += new System.EventHandler(this.btnExecute_Click);
@@ -180,6 +201,63 @@ namespace TextToCad.SolidWorksAddin
             this.txtPlan.Size = new System.Drawing.Size(324, 98);
             this.txtPlan.TabIndex = 0;
             // 
+            // grpPlanner
+            // 
+            this.grpPlanner.Controls.Add(this.btnPlannerSubmit);
+            this.grpPlanner.Controls.Add(this.txtPlannerAnswers);
+            this.grpPlanner.Controls.Add(this.txtPlannerQuestions);
+            this.grpPlanner.Controls.Add(this.lblPlannerState);
+            this.grpPlanner.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.grpPlanner.Location = new System.Drawing.Point(10, 355);
+            this.grpPlanner.Name = "grpPlanner";
+            this.grpPlanner.Size = new System.Drawing.Size(330, 150);
+            this.grpPlanner.TabIndex = 8;
+            this.grpPlanner.TabStop = false;
+            this.grpPlanner.Text = "Planner";
+            // 
+            // lblPlannerState
+            // 
+            this.lblPlannerState.AutoSize = true;
+            this.lblPlannerState.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lblPlannerState.Location = new System.Drawing.Point(6, 20);
+            this.lblPlannerState.Name = "lblPlannerState";
+            this.lblPlannerState.Size = new System.Drawing.Size(83, 13);
+            this.lblPlannerState.TabIndex = 0;
+            this.lblPlannerState.Text = "Planner: idle";
+            // 
+            // txtPlannerQuestions
+            // 
+            this.txtPlannerQuestions.BackColor = System.Drawing.Color.White;
+            this.txtPlannerQuestions.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.txtPlannerQuestions.Location = new System.Drawing.Point(6, 38);
+            this.txtPlannerQuestions.Multiline = true;
+            this.txtPlannerQuestions.Name = "txtPlannerQuestions";
+            this.txtPlannerQuestions.ReadOnly = true;
+            this.txtPlannerQuestions.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtPlannerQuestions.Size = new System.Drawing.Size(318, 50);
+            this.txtPlannerQuestions.TabIndex = 1;
+            // 
+            // txtPlannerAnswers
+            // 
+            this.txtPlannerAnswers.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.txtPlannerAnswers.Location = new System.Drawing.Point(6, 92);
+            this.txtPlannerAnswers.Multiline = true;
+            this.txtPlannerAnswers.Name = "txtPlannerAnswers";
+            this.txtPlannerAnswers.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtPlannerAnswers.Size = new System.Drawing.Size(318, 30);
+            this.txtPlannerAnswers.TabIndex = 2;
+            // 
+            // btnPlannerSubmit
+            // 
+            this.btnPlannerSubmit.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnPlannerSubmit.Location = new System.Drawing.Point(6, 124);
+            this.btnPlannerSubmit.Name = "btnPlannerSubmit";
+            this.btnPlannerSubmit.Size = new System.Drawing.Size(318, 20);
+            this.btnPlannerSubmit.TabIndex = 3;
+            this.btnPlannerSubmit.Text = "Submit Answers";
+            this.btnPlannerSubmit.UseVisualStyleBackColor = true;
+            this.btnPlannerSubmit.Click += new System.EventHandler(this.btnPlannerSubmit_Click);
+            // 
             // grpSteps
             // 
             this.grpSteps.Controls.Add(this.lstSteps);
@@ -188,10 +266,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpSteps.Controls.Add(this.btnRunNextStep);
             this.grpSteps.Controls.Add(this.btnUndoLastStep);
             this.grpSteps.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSteps.Location = new System.Drawing.Point(10, 355);
+            this.grpSteps.Location = new System.Drawing.Point(10, 515);
             this.grpSteps.Name = "grpSteps";
             this.grpSteps.Size = new System.Drawing.Size(330, 140);
-            this.grpSteps.TabIndex = 8;
+            this.grpSteps.TabIndex = 9;
             this.grpSteps.TabStop = false;
             this.grpSteps.Text = "Steps";
             // 
@@ -254,10 +332,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpLog.Controls.Add(this.txtLog);
             this.grpLog.Controls.Add(this.btnClearLog);
             this.grpLog.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpLog.Location = new System.Drawing.Point(10, 505);
+            this.grpLog.Location = new System.Drawing.Point(10, 665);
             this.grpLog.Name = "grpLog";
             this.grpLog.Size = new System.Drawing.Size(330, 200);
-            this.grpLog.TabIndex = 9;
+            this.grpLog.TabIndex = 10;
             this.grpLog.TabStop = false;
             this.grpLog.Text = "Log";
             // 
@@ -300,10 +378,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.Controls.Add(this.lblApiBase);
             this.grpSettings.Controls.Add(this.txtApiBase);
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSettings.Location = new System.Drawing.Point(10, 715);
+            this.grpSettings.Location = new System.Drawing.Point(10, 875);
             this.grpSettings.Name = "grpSettings";
             this.grpSettings.Size = new System.Drawing.Size(330, 250);
-            this.grpSettings.TabIndex = 10;
+            this.grpSettings.TabIndex = 11;
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "Settings";
             // 
@@ -314,10 +392,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 970);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 1130);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
-            this.grpTestUtils.TabIndex = 12;
+            this.grpTestUtils.TabIndex = 13;
             this.grpTestUtils.TabStop = false;
             this.grpTestUtils.Text = "Test Utilities (SW-2)";
             // 
@@ -505,11 +583,11 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 1070);
+            this.lblStatus.Location = new System.Drawing.Point(0, 1230);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
-            this.lblStatus.TabIndex = 9;
+            this.lblStatus.TabIndex = 12;
             this.lblStatus.Text = "Ready";
             this.lblStatus.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
@@ -524,7 +602,9 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.grpSettings);
             this.Controls.Add(this.grpLog);
             this.Controls.Add(this.grpSteps);
+            this.Controls.Add(this.grpPlanner);
             this.Controls.Add(this.grpPlan);
+            this.Controls.Add(this.btnPlan);
             this.Controls.Add(this.btnExecute);
             this.Controls.Add(this.btnPreview);
             this.Controls.Add(this.chkUseAI);
@@ -534,9 +614,11 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 1095);
+            this.Size = new System.Drawing.Size(350, 1255);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
+            this.grpPlanner.ResumeLayout(false);
+            this.grpPlanner.PerformLayout();
             this.grpSteps.ResumeLayout(false);
             this.grpSteps.PerformLayout();
             this.grpLog.ResumeLayout(false);
@@ -555,10 +637,16 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.Label lblInstruction;
         private System.Windows.Forms.TextBox txtInstruction;
         private System.Windows.Forms.CheckBox chkUseAI;
+        private System.Windows.Forms.Button btnPlan;
         private System.Windows.Forms.Button btnPreview;
         private System.Windows.Forms.Button btnExecute;
         private System.Windows.Forms.GroupBox grpPlan;
         private System.Windows.Forms.TextBox txtPlan;
+        private System.Windows.Forms.GroupBox grpPlanner;
+        private System.Windows.Forms.Label lblPlannerState;
+        private System.Windows.Forms.TextBox txtPlannerQuestions;
+        private System.Windows.Forms.TextBox txtPlannerAnswers;
+        private System.Windows.Forms.Button btnPlannerSubmit;
         private System.Windows.Forms.GroupBox grpSteps;
         private System.Windows.Forms.CheckedListBox lstSteps;
         private System.Windows.Forms.Button btnRunSelectedStep;

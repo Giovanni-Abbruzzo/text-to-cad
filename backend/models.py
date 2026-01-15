@@ -54,3 +54,32 @@ class Command(Base):
 
 # Create index on created_at for efficient time-based queries
 Index('idx_commands_created_at', Command.created_at)
+
+
+class DesignState(Base):
+    """
+    Model for storing planner state and question/answer progress.
+
+    This table persists planner sessions so a user can answer questions
+    over multiple requests and resume later.
+    """
+
+    __tablename__ = "design_states"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    state_id = Column(String(64), nullable=False, unique=True, index=True)
+    instruction = Column(Text, nullable=False, comment="Original high-level request")
+    plan_json = Column(Text, nullable=True, comment="JSON list of plan steps")
+    questions_json = Column(Text, nullable=True, comment="JSON list of questions")
+    answers_json = Column(Text, nullable=True, comment="JSON map of answers")
+    status = Column(String(32), nullable=False, default="awaiting_answers")
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(
+        DateTime,
+        nullable=False,
+        default=func.now(),
+        onupdate=func.now(),
+    )
+
+
+Index('idx_design_states_state_id', DesignState.state_id)

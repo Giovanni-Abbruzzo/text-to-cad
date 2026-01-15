@@ -42,7 +42,13 @@ namespace TextToCad.SolidWorksAddin.Builders
             double heightMm = 10.0,
             double? draftAngleDeg = null,
             bool? draftOutward = null,
-            bool? flipDirection = null)
+            bool? flipDirection = null,
+            double? centerXmm = null,
+            double? centerYmm = null,
+            double? centerZmm = null,
+            string axis = null,
+            bool? useTopFace = null,
+            bool? extrudeMidplane = null)
         {
             if (model == null)
             {
@@ -84,6 +90,13 @@ namespace TextToCad.SolidWorksAddin.Builders
             bool useDraft = sanitizedDraftAngleDeg.HasValue;
             bool draftOut = draftOutward ?? false;
             bool flip = flipDirection ?? false;
+            bool midPlane = extrudeMidplane ?? false;
+
+            string axisNormalized = axis?.Trim().ToLowerInvariant();
+            if (axisNormalized != "x" && axisNormalized != "z")
+            {
+                axisNormalized = "y";
+            }
 
             // Check if model is a part document
             if (model.GetType() != (int)swDocumentTypes_e.swDocPART)
@@ -92,27 +105,71 @@ namespace TextToCad.SolidWorksAddin.Builders
                 return false;
             }
 
-            _log.Info("Creating cylinder on Top Plane:");
+            _log.Info("Creating cylinder:");
             _log.Info($"  Diameter: {diameterMm} mm");
             _log.Info($"  Height: {heightMm} mm");
             if (useDraft)
                 _log.Info($"  Draft: {sanitizedDraftAngleDeg} deg, outward={draftOut}");
             if (flip)
                 _log.Info("  Flip direction: true");
+            if (midPlane)
+                _log.Info("  Midplane: true");
+            _log.Info($"  Axis: {axisNormalized}");
+            if (centerXmm.HasValue || centerYmm.HasValue || centerZmm.HasValue)
+                _log.Info($"  Center: ({centerXmm ?? 0} mm, {centerYmm ?? 0} mm, {centerZmm ?? 0} mm)");
 
             // Use UndoScope for safe rollback on failure
             using (var scope = new UndoScope(model, "Create Extruded Cylinder", _log))
             {
                 try
                 {
-                    // Step 1: Select Top Plane
-                    _log.Info("Selecting Top Plane...");
-                    if (!Selection.SelectPlaneByName(_sw, model, "Top Plane", logger: _log))
+                    // Step 1: Select sketch plane or face
+                    string planeName = axisNormalized == "z" ? "Front Plane" :
+                                       axisNormalized == "x" ? "Right Plane" :
+                                       "Top Plane";
+
+                    bool useFace = useTopFace ?? false;
+                    if (useFace && axisNormalized != "y")
                     {
-                        _log.Error("Failed to select Top Plane");
-                        return false;
+                        _log.Warn("use_top_face is only supported for vertical cylinders (axis=y); ignoring");
+                        useFace = false;
                     }
-                    _log.Info("Top Plane selected");
+
+                    if (useFace)
+                    {
+                        double targetXmm = centerXmm ?? 0.0;
+                        double targetZmm = centerZmm ?? centerYmm ?? 0.0;
+                        _log.Info("Selecting top face at target location...");
+                        IFace2 topFace = Selection.GetTopMostPlanarFaceAt(model, targetXmm, targetZmm, _log);
+                        if (topFace == null)
+                        {
+                            _log.Warn("No planar face found at location - falling back to global top face");
+                            topFace = Selection.GetTopMostPlanarFace(model, _log);
+                        }
+
+                        if (topFace == null)
+                        {
+                            _log.Error("Failed to find a planar face for cylinder");
+                            return false;
+                        }
+
+                        if (!Selection.SelectFace(model, topFace, false, _log))
+                        {
+                            _log.Error("Failed to select top face for cylinder");
+                            return false;
+                        }
+                        _log.Info("Top face selected");
+                    }
+                    else
+                    {
+                        _log.Info($"Selecting {planeName}...");
+                        if (!Selection.SelectPlaneByName(_sw, model, planeName, logger: _log))
+                        {
+                            _log.Error($"Failed to select {planeName}");
+                            return false;
+                        }
+                        _log.Info($"{planeName} selected");
+                    }
 
                     // Step 2: Start sketch on selected plane
                     _log.Info("Starting sketch...");
@@ -134,13 +191,38 @@ namespace TextToCad.SolidWorksAddin.Builders
                     double radiusMm = diameterMm / 2.0;
                     double radiusM = Units.MmToM(radiusMm);
 
-                    _log.Info($"Creating circle at origin (radius={radiusMm} mm)...");
+                    double centerX = Units.MmToM(centerXmm ?? 0.0);
+                    double centerY = Units.MmToM(centerYmm ?? 0.0);
+                    double centerZ = Units.MmToM(centerZmm ?? 0.0);
+
+                    if (axisNormalized == "y")
+                    {
+                        double planarZmm = centerZmm ?? centerYmm ?? 0.0;
+                        double planarZ = Units.MmToM(planarZmm);
+                        _log.Info($"Creating circle at center ({centerXmm ?? 0} mm, {planarZmm} mm) (radius={radiusMm} mm)...");
+                        centerY = planarZ;
+                        centerZ = 0.0;
+                    }
+                    else if (axisNormalized == "z")
+                    {
+                        _log.Info($"Creating circle at center ({centerXmm ?? 0} mm, {centerYmm ?? 0} mm) (radius={radiusMm} mm)...");
+                        centerZ = 0.0;
+                    }
+                    else
+                    {
+                        double planarYmm = centerYmm ?? 0.0;
+                        double planarZmm = centerZmm ?? 0.0;
+                        _log.Info($"Creating circle at center ({planarYmm} mm, {planarZmm} mm) (radius={radiusMm} mm)...");
+                        centerX = 0.0;
+                        centerY = Units.MmToM(planarYmm);
+                        centerZ = Units.MmToM(planarZmm);
+                    }
 
                     object circleObj = model.SketchManager.CreateCircleByRadius(
-                        0,        // X center (origin)
-                        0,        // Y center (origin)
-                        0,        // Z center (on plane)
-                        radiusM   // Radius in meters
+                        centerX,
+                        centerY,
+                        centerZ,
+                        radiusM
                     );
 
                     if (circleObj == null)
@@ -163,13 +245,17 @@ namespace TextToCad.SolidWorksAddin.Builders
                     double heightM = Units.MmToM(heightMm);
                     double draftAngleRad = useDraft ? (sanitizedDraftAngleDeg.Value * Math.PI / 180.0) : 0.0;
 
+                    int endCondition = midPlane
+                        ? (int)swEndConditions_e.swEndCondMidPlane
+                        : (int)swEndConditions_e.swEndCondBlind;
+
                     _log.Info($"Creating boss-extrude (height={heightMm} mm)...");
 
                     IFeature feature = model.FeatureManager.FeatureExtrusion(
                         true,              // SD: Single direction
                         flip,              // Flip: Flip direction
                         false,             // Dir: Direction (not used for blind)
-                        (int)swEndConditions_e.swEndCondBlind,  // T1: Blind extrusion
+                        endCondition,      // T1: End condition
                         0,                 // T2: Not used (single direction)
                         heightM,           // D1: Depth in meters (height of cylinder)
                         0.0,               // D2: Not used

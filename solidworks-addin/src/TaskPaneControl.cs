@@ -26,6 +26,8 @@ namespace TextToCad.SolidWorksAddin
         private readonly HashSet<int> _executedSteps = new HashSet<int>();
         private readonly Stack<int> _undoStack = new Stack<int>();
         private readonly Dictionary<int, string> _stepFeatureNames = new Dictionary<int, string>();
+        private string _plannerStateId;
+        private PlannerResponse _plannerResponse;
 
         #endregion
 
@@ -67,11 +69,129 @@ namespace TextToCad.SolidWorksAddin
 
             // Update replay status label
             UpdateReplayStatusLabel();
+
+            if (txtPlannerQuestions != null)
+            {
+                txtPlannerQuestions.Text = "Planner idle. Click Plan to start.";
+            }
+
+            if (lblPlannerState != null)
+            {
+                lblPlannerState.Text = "Planner: idle";
+            }
         }
 
         #endregion
 
         #region Event Handlers
+
+        /// <summary>
+        /// Handle Plan button click - calls /plan endpoint
+        /// </summary>
+        private async void btnPlan_Click(object sender, EventArgs e)
+        {
+            // Validate instruction
+            if (!ErrorHandler.ValidateInstruction(txtInstruction.Text, out string errorMessage))
+            {
+                AppendLog("Validation error", Color.Red);
+                AppendLog(errorMessage, Color.Red);
+                return;
+            }
+
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+
+                string instructionText = txtInstruction.Text.Trim();
+                AppendLog("Planning instruction...", Color.Blue);
+                Logger.Info($"Plan requested: '{instructionText}'");
+
+                var request = new PlannerRequest
+                {
+                    Instruction = instructionText,
+                    UseAI = chkUseAI.Checked
+                };
+
+                var response = await ApiClient.PlanAsync(request);
+                DisplayPlannerResponse(response);
+
+                AppendLog("Planner response received", Color.Green);
+            }
+            catch (Exception ex)
+            {
+                string errorMsg = ErrorHandler.HandleException(ex, "Planner");
+                AppendLog("Planner request failed", Color.Red);
+                AppendLog(errorMsg, Color.Red);
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
+
+        /// <summary>
+        /// Handle Submit Answers button click - calls /plan with state_id
+        /// </summary>
+        private async void btnPlannerSubmit_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_plannerStateId))
+            {
+                AppendLog("Planner is idle. Click Plan to start.", Color.Orange);
+                return;
+            }
+
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            var answers = ParsePlannerAnswers(txtPlannerAnswers.Text);
+            if (answers.Count == 0)
+            {
+                AppendLog("No planner answers provided. Use key=value per line.", Color.Orange);
+                return;
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+
+                AppendLog($"Submitting planner answers (state {_plannerStateId})...", Color.Blue);
+
+                var request = new PlannerRequest
+                {
+                    StateId = _plannerStateId,
+                    Answers = answers,
+                    UseAI = chkUseAI.Checked
+                };
+
+                var response = await ApiClient.PlanAsync(request);
+                DisplayPlannerResponse(response);
+
+                AppendLog("Planner updated", Color.Green);
+            }
+            catch (Exception ex)
+            {
+                string errorMsg = ErrorHandler.HandleException(ex, "Planner");
+                AppendLog("Planner update failed", Color.Red);
+                AppendLog(errorMsg, Color.Red);
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
+            }
+        }
 
         /// <summary>
         /// Handle Preview button click - calls /dry_run endpoint
@@ -1150,10 +1270,31 @@ namespace TextToCad.SolidWorksAddin
                 double widthMm = data.WidthMm ?? data.LengthMm ?? data.DiameterMm ?? 80.0;
                 double lengthMm = data.LengthMm ?? data.WidthMm ?? data.DiameterMm ?? widthMm;
                 double thicknessMm = data.HeightMm ?? data.DepthMm ?? 6.0;
+                double? centerXmm = data.CenterXmm;
+                double? centerYmm = data.CenterYmm;
+                double? centerZmm = data.CenterZmm;
+                bool useTopFace = data.UseTopFace ?? false;
+                bool extrudeMidplane = data.ExtrudeMidplane ?? false;
 
                 AppendLog($"Creating base plate: {lengthMm}x{widthMm}x{thicknessMm} mm", Color.Blue);
 
                 var builder = new Builders.BasePlateBuilder(swApp, logger);
+                if (useTopFace)
+                {
+                    return builder.CreatePlateOnTopFace(
+                        model,
+                        widthMm,
+                        lengthMm,
+                        thicknessMm,
+                        centerXmm,
+                        centerZmm ?? centerYmm,
+                        data.DraftAngleDeg,
+                        data.DraftOutward,
+                        data.FlipDirection,
+                        extrudeMidplane
+                    );
+                }
+
                 return builder.EnsureBasePlate(
                     model,
                     widthMm,
@@ -1162,7 +1303,10 @@ namespace TextToCad.SolidWorksAddin
                     lengthMm,
                     data.DraftAngleDeg,
                     data.DraftOutward,
-                    data.FlipDirection
+                    data.FlipDirection,
+                    centerXmm,
+                    centerYmm,
+                    extrudeMidplane
                 );
             }
             catch (Exception ex)
@@ -1270,9 +1414,23 @@ namespace TextToCad.SolidWorksAddin
 
                 double diameterMm = data.DiameterMm ?? (data.RadiusMm.HasValue ? data.RadiusMm.Value * 2.0 : 20.0);
                 double heightMm = data.HeightMm ?? data.DepthMm ?? 10.0;
+                double? centerXmm = data.CenterXmm;
+                double? centerYmm = data.CenterYmm;
+                double? centerZmm = data.CenterZmm;
+                string axis = data.Axis;
+                bool useTopFace = data.UseTopFace ?? false;
+                bool extrudeMidplane = data.ExtrudeMidplane ?? false;
 
                 AppendLog("Creating cylinder:", Color.Blue);
                 AppendLog($"  Diameter: {diameterMm}mm, Height: {heightMm}mm", Color.DarkGray);
+                if (centerXmm.HasValue || centerYmm.HasValue || centerZmm.HasValue)
+                    AppendLog($"  Center: ({centerXmm ?? 0}mm, {centerYmm ?? 0}mm, {centerZmm ?? 0}mm)", Color.DarkGray);
+                if (!string.IsNullOrWhiteSpace(axis))
+                    AppendLog($"  Axis: {axis}", Color.DarkGray);
+                if (useTopFace)
+                    AppendLog("  Using top face", Color.DarkGray);
+                if (extrudeMidplane)
+                    AppendLog("  Midplane: true", Color.DarkGray);
 
                 var builder = new Builders.ExtrudedCylinderBuilder(swApp, logger);
                 return builder.CreateCylinderOnTopPlane(
@@ -1281,7 +1439,13 @@ namespace TextToCad.SolidWorksAddin
                     heightMm,
                     data.DraftAngleDeg,
                     data.DraftOutward,
-                    data.FlipDirection
+                    data.FlipDirection,
+                    centerXmm,
+                    centerYmm,
+                    centerZmm,
+                    axis,
+                    useTopFace,
+                    extrudeMidplane
                 );
             }
             catch (Exception ex)
@@ -1469,6 +1633,161 @@ namespace TextToCad.SolidWorksAddin
             // Update status
             lblStatus.Text = $"{mode} Complete - {source}";
             lblStatus.ForeColor = Color.Green;
+        }
+
+        private void DisplayPlannerResponse(PlannerResponse response)
+        {
+            if (response == null)
+            {
+                AppendLog("Planner response was empty", Color.Orange);
+                return;
+            }
+
+            _plannerResponse = response;
+            _plannerStateId = response.StateId;
+
+            string stateShort = FormatPlannerStateId(_plannerStateId);
+            string status = response.Status ?? "unknown";
+            string plannerLabel = $"Planner: {status}";
+            if (!string.IsNullOrWhiteSpace(stateShort))
+            {
+                plannerLabel += $" (state {stateShort})";
+            }
+
+            if (lblPlannerState != null)
+            {
+                lblPlannerState.Text = plannerLabel;
+            }
+
+            txtPlan.Clear();
+            if (response.Plan != null && response.Plan.Count > 0)
+            {
+                foreach (var step in response.Plan)
+                {
+                    txtPlan.AppendText($"- {step}\r\n");
+                }
+            }
+            else
+            {
+                txtPlan.Text = "(No plan available)";
+            }
+
+            if (txtPlannerQuestions != null)
+            {
+                txtPlannerQuestions.Clear();
+                if (response.Questions != null && response.Questions.Count > 0)
+                {
+                    foreach (var question in response.Questions)
+                    {
+                        txtPlannerQuestions.AppendText($"{question.Id}: {question.Prompt}\r\n");
+                    }
+                }
+                else
+                {
+                    txtPlannerQuestions.Text = "No open questions.";
+                }
+            }
+
+            if (txtPlannerAnswers != null)
+            {
+                if (response.Questions != null && response.Questions.Count > 0)
+                {
+                    txtPlannerAnswers.Text = string.Join(
+                        "\r\n",
+                        response.Questions.Select(q => $"{q.Id}="));
+                }
+                else
+                {
+                    txtPlannerAnswers.Clear();
+                }
+            }
+
+            if (response.Notes != null && response.Notes.Count > 0)
+            {
+                AppendLog("Planner notes:", Color.DarkGray);
+                foreach (var note in response.Notes)
+                {
+                    AppendLog($"  - {note}", Color.DarkGray);
+                }
+            }
+
+            if (response.Operations != null && response.Operations.Count > 0)
+            {
+                var plannerInstructionResponse = new InstructionResponse
+                {
+                    SchemaVersion = response.SchemaVersion,
+                    Instruction = response.Instruction,
+                    Source = "planner",
+                    Plan = response.Plan,
+                    ParsedParameters = response.Operations[0],
+                    Operations = response.Operations
+                };
+
+                _lastResponse = plannerInstructionResponse;
+                _lastUseAI = false;
+                LoadStepsFromResponse(plannerInstructionResponse);
+            }
+            else
+            {
+                if (lstSteps != null)
+                {
+                    lstSteps.Items.Clear();
+                    lstSteps.Items.Add("(Planner awaiting answers)", false);
+                    lstSteps.Enabled = false;
+                }
+            }
+
+            lblStatus.Text = $"Planner: {status}";
+            lblStatus.ForeColor = status == "ready" ? Color.Green : Color.DarkOrange;
+        }
+
+        private Dictionary<string, object> ParsePlannerAnswers(string answerText)
+        {
+            var results = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(answerText))
+            {
+                return results;
+            }
+
+            string normalized = answerText.Replace("\r", "\n");
+            string[] entries = normalized.Split(new[] { '\n', ';' }, StringSplitOptions.RemoveEmptyEntries);
+
+            foreach (string entry in entries)
+            {
+                string trimmed = entry.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed))
+                {
+                    continue;
+                }
+
+                string[] parts = trimmed.Split(new[] { '=', ':' }, 2);
+                if (parts.Length != 2)
+                {
+                    continue;
+                }
+
+                string key = parts[0].Trim();
+                string value = parts[1].Trim();
+
+                if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value))
+                {
+                    continue;
+                }
+
+                results[key] = value;
+            }
+
+            return results;
+        }
+
+        private string FormatPlannerStateId(string stateId)
+        {
+            if (string.IsNullOrWhiteSpace(stateId))
+            {
+                return null;
+            }
+
+            return stateId.Length > 8 ? stateId.Substring(0, 8) : stateId;
         }
 
         private void LoadStepsFromResponse(InstructionResponse response)
@@ -1847,6 +2166,7 @@ namespace TextToCad.SolidWorksAddin
         {
             btnPreview.Enabled = enabled;
             btnExecute.Enabled = enabled;
+            btnPlan.Enabled = enabled;
             btnUpdateUrl.Enabled = enabled;
             btnTestConnection.Enabled = enabled;
             btnReplayStart.Enabled = enabled;
@@ -1855,6 +2175,7 @@ namespace TextToCad.SolidWorksAddin
             btnReplayEnd.Enabled = enabled;
             btnReplayLast.Enabled = enabled;
             btnOpenReplay.Enabled = enabled;
+            btnPlannerSubmit.Enabled = enabled;
             btnRunSelectedStep.Enabled = enabled;
             btnRunCheckedSteps.Enabled = enabled;
             btnRunNextStep.Enabled = enabled;
@@ -1862,6 +2183,10 @@ namespace TextToCad.SolidWorksAddin
             if (lstSteps != null)
             {
                 lstSteps.Enabled = enabled;
+            }
+            if (txtPlannerAnswers != null)
+            {
+                txtPlannerAnswers.Enabled = enabled;
             }
             txtInstruction.Enabled = enabled;
             txtApiBase.Enabled = enabled;

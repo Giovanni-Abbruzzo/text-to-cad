@@ -10,6 +10,16 @@ export async function processInstruction(text, useAI = false) {
   return r.json();
 }
 
+export async function planInstruction(payload) {
+  const r = await fetch(`${API_BASE}/plan`, {
+    method: "POST",
+    headers: {"Content-Type":"application/json"},
+    body: JSON.stringify(payload)
+  });
+  if (!r.ok) throw new Error(`API error ${r.status}`);
+  return r.json();
+}
+
 export async function fetchCommands(limit = 20) {
   const r = await fetch(`${API_BASE}/commands?limit=${limit}`);
   if (!r.ok) throw new Error(`API error ${r.status}`);

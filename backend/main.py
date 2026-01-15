@@ -19,12 +19,13 @@ import re
 import logging
 import json
 import os
+import uuid
 from datetime import datetime
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, validator, Field
-from typing import Dict, Optional, Union, List, Any
+from pydantic import BaseModel, validator, model_validator, Field
+from typing import Dict, Optional, Union, List, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -33,7 +34,7 @@ from config import config
 
 # Import database components
 from db import engine, Base, SessionLocal, get_db
-from models import Command
+from models import Command, DesignState
 
 # Import AI/LLM functionality
 from llm import parse_instruction_with_ai, LLMParseError
@@ -177,6 +178,54 @@ class InstructionRequest(BaseModel):
         return cleaned
 
 
+class PlannerQuestion(BaseModel):
+    """
+    Question prompt returned by the planner with a stable identifier.
+    """
+    id: str
+    prompt: str
+
+
+class PlannerRequest(BaseModel):
+    """
+    Request model for planner workflow.
+
+    Either instruction (new plan) or state_id (resume) must be provided.
+    """
+    instruction: Optional[str] = None
+    state_id: Optional[str] = None
+    answers: Optional[Dict[str, Any]] = None
+    use_ai: bool = False
+
+    @model_validator(mode="after")
+    def validate_request(self):
+        if not self.instruction and not self.state_id:
+            raise ValueError("instruction or state_id is required.")
+
+        if self.instruction:
+            cleaned = self.instruction.strip()
+            if len(cleaned) < 3:
+                raise ValueError("Instruction cannot be empty.")
+            self.instruction = cleaned
+
+        return self
+
+
+class PlannerResponse(BaseModel):
+    """
+    Response model for planner workflow.
+    """
+    schema_version: str = "1.0"
+    instruction: str
+    state_id: str
+    status: str
+    plan: List[str]
+    questions: List[PlannerQuestion] = Field(default_factory=list)
+    answers: Dict[str, Any] = Field(default_factory=dict)
+    operations: List[Dict[str, Any]] = Field(default_factory=list)
+    notes: List[str] = Field(default_factory=list)
+
+
 class PatternInfo(BaseModel):
     """
     Pattern information for CAD operations.
@@ -221,6 +270,12 @@ class ParsedParameters(BaseModel):
     length_mm: Optional[float] = None
     depth_mm: Optional[float] = None
     radius_mm: Optional[float] = None
+    center_x_mm: Optional[float] = None
+    center_y_mm: Optional[float] = None
+    center_z_mm: Optional[float] = None
+    axis: Optional[str] = None
+    use_top_face: Optional[bool] = None
+    extrude_midplane: Optional[bool] = None
     angle_deg: Optional[float] = None
     draft_angle_deg: Optional[float] = None
     draft_outward: Optional[bool] = None
@@ -372,6 +427,183 @@ def _coerce_int(value: Any) -> Optional[int]:
     return None
 
 
+def _json_load(value: Optional[str], default: Any) -> Any:
+    if not value:
+        return default
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return default
+
+
+def _json_dump(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    return json.dumps(value)
+
+
+def _is_high_level_planner_request(instruction: str) -> bool:
+    instruction_lower = instruction.lower()
+    return bool(re.search(r"\b(mountain\s+bike|bicycle|bike)\b", instruction_lower))
+
+
+def _build_bike_plan() -> Tuple[List[str], List[Dict[str, str]], List[str]]:
+    plan = [
+        "Define frame geometry and size",
+        "Define wheel dimensions",
+        "Define handlebar and seatpost dimensions",
+        "Create simplified frame solid",
+        "Create wheel solids (placeholder)",
+        "Assemble and validate overall proportions",
+    ]
+
+    questions = [
+        {"id": "frame_size_mm", "prompt": "Frame size in mm (e.g., 450)"},
+        {"id": "wheel_diameter_mm", "prompt": "Wheel diameter in mm (e.g., 650)"},
+        {"id": "tire_width_mm", "prompt": "Tire width in mm (e.g., 55)"},
+        {"id": "handlebar_width_mm", "prompt": "Handlebar width in mm (e.g., 720)"},
+    ]
+
+    required_keys = [q["id"] for q in questions]
+    return plan, questions, required_keys
+
+
+def _normalize_answer_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        match = re.search(r"([0-9]*\.?[0-9]+)\s*(mm|cm|m|in|inch|inches)?", cleaned)
+        if match:
+            number = float(match.group(1))
+            unit = match.group(2)
+            return _to_mm(number, unit)
+        return cleaned
+    return value
+
+
+def _merge_answers(existing: Dict[str, Any], updates: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    merged = dict(existing or {})
+    if not updates:
+        return merged
+
+    for key, value in updates.items():
+        normalized = _normalize_answer_value(value)
+        if normalized is None:
+            continue
+        merged[str(key)] = normalized
+    return merged
+
+
+def _build_operations_from_instruction(instruction: str, use_ai: bool) -> Tuple[List[Dict[str, Any]], List[str]]:
+    instruction_lines = split_instruction_into_operations(instruction)
+    operations = []
+    plan_steps = []
+
+    for line in instruction_lines:
+        parse_result = parse_instruction_internal(line, use_ai)
+        parsed_result = parse_result["result"]
+        operations.append(parsed_result)
+        plan_steps.extend(generate_plan_from_parsed(parsed_result))
+
+    return operations, plan_steps
+
+
+def _build_bike_operations(answers: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[str]]:
+    frame_size = _coerce_float(answers.get("frame_size_mm")) or 450.0
+    wheel_diameter = _coerce_float(answers.get("wheel_diameter_mm")) or 650.0
+    tire_width = _coerce_float(answers.get("tire_width_mm")) or 55.0
+    handlebar_width = _coerce_float(answers.get("handlebar_width_mm")) or 720.0
+
+    wheelbase = max(frame_size * 2.0, wheel_diameter * 1.5)
+    frame_length = wheelbase * 0.7
+    frame_width = max(frame_size * 0.05, 20.0)
+    frame_thickness = max(frame_size * 0.015, 6.0)
+
+    wheel_height = max(tire_width, 12.0)
+    head_tube_diameter = max(handlebar_width * 0.03, 14.0)
+    head_tube_height = max(frame_size * 0.3, 120.0) * 3.0
+    seatpost_diameter = max(head_tube_diameter * 0.7, 12.0)
+    seatpost_height = max(frame_size * 0.35, 160.0)
+
+    seat_length = max(frame_size * 0.35, 140.0)
+    seat_width = max(frame_size * 0.12, 45.0)
+    seat_thickness = max(frame_thickness * 0.6, 6.0)
+
+    handlebar_diameter = max(handlebar_width * 0.03, 20.0)
+    handlebar_length = max(handlebar_width, wheel_diameter * 0.6)
+
+    front_wheel_x = wheelbase / 2.0
+    rear_wheel_x = -wheelbase / 2.0
+    seatpost_x = rear_wheel_x + wheelbase * 0.4
+    wheel_radius = wheel_diameter / 2.0
+    headtube_clearance = wheel_radius + (head_tube_diameter * 1.5)
+    headtube_preferred = front_wheel_x - headtube_clearance
+    frame_half = (frame_length / 2.0) - head_tube_diameter
+    headtube_x = min(headtube_preferred, frame_half)
+    handlebar_center_y = (frame_thickness / 2.0) + head_tube_height + (handlebar_diameter / 2.0)
+
+    instructions = [
+        f"create base plate {frame_length:.0f} x {frame_width:.0f} x {frame_thickness:.0f} mm",
+        f"create cylinder diameter {seatpost_diameter:.0f} mm height {seatpost_height:.0f} mm",
+        f"create base plate {seat_length:.0f} x {seat_width:.0f} x {seat_thickness:.0f} mm",
+        f"create cylinder diameter {head_tube_diameter:.0f} mm height {head_tube_height:.0f} mm",
+        f"create cylinder diameter {handlebar_diameter:.0f} mm height {handlebar_length:.0f} mm",
+        f"create cylinder diameter {wheel_diameter:.0f} mm height {wheel_height:.0f} mm",
+        f"create cylinder diameter {wheel_diameter:.0f} mm height {wheel_height:.0f} mm",
+    ]
+
+    operations = []
+    for index, instruction in enumerate(instructions):
+        parse_result = parse_instruction_internal(instruction, use_ai=False)
+        parsed_result = parse_result["result"]
+        parameters = parsed_result.get("parameters", {})
+
+        if index == 0:
+            parameters["extrude_midplane"] = True
+        elif index == 1:
+            parameters["center_x_mm"] = seatpost_x
+            parameters["center_z_mm"] = 0.0
+            parameters["axis"] = "y"
+            parameters["use_top_face"] = True
+        elif index == 2:
+            parameters["center_x_mm"] = seatpost_x
+            parameters["center_z_mm"] = 0.0
+            parameters["use_top_face"] = True
+        elif index == 3:
+            parameters["center_x_mm"] = headtube_x
+            parameters["center_z_mm"] = 0.0
+            parameters["axis"] = "y"
+            parameters["use_top_face"] = True
+        elif index == 4:
+            parameters["center_x_mm"] = headtube_x
+            parameters["center_y_mm"] = handlebar_center_y
+            parameters["axis"] = "z"
+            parameters["extrude_midplane"] = True
+        elif index == 5:
+            parameters["center_x_mm"] = rear_wheel_x
+            parameters["center_y_mm"] = 0.0
+            parameters["axis"] = "z"
+            parameters["extrude_midplane"] = True
+        elif index == 6:
+            parameters["center_x_mm"] = front_wheel_x
+            parameters["center_y_mm"] = 0.0
+            parameters["axis"] = "z"
+            parameters["extrude_midplane"] = True
+
+        parsed_result["parameters"] = parameters
+        operations.append(parsed_result)
+
+    notes = [
+        "Planner outputs a simplified single-part placeholder with parts spaced along X/Y.",
+        "Assembly, mates, and accurate positioning will be handled in Assembly-1.",
+    ]
+
+    return operations, notes
 def _coerce_bool(value: Any) -> Optional[bool]:
     if value is None:
         return None
@@ -439,6 +671,18 @@ def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
     length_mm = _coerce_float(raw_params.get("length_mm"))
     depth_mm = _coerce_float(raw_params.get("depth_mm"))
     radius_mm = _coerce_float(raw_params.get("radius_mm"))
+    center_x_mm = _coerce_float(raw_params.get("center_x_mm"))
+    center_y_mm = _coerce_float(raw_params.get("center_y_mm"))
+    center_z_mm = _coerce_float(raw_params.get("center_z_mm"))
+    axis = raw_params.get("axis")
+    if isinstance(axis, str):
+        axis = axis.strip().lower()
+        if axis not in {"x", "y", "z"}:
+            axis = None
+    else:
+        axis = None
+    use_top_face = _coerce_bool(raw_params.get("use_top_face"))
+    extrude_midplane = _coerce_bool(raw_params.get("extrude_midplane"))
     angle_deg = _coerce_float(raw_params.get("angle_deg"))
     draft_angle_deg = _coerce_float(raw_params.get("draft_angle_deg"))
     draft_outward = _coerce_bool(raw_params.get("draft_outward"))
@@ -484,6 +728,12 @@ def _normalize_parameters(raw_params: Any) -> Dict[str, Any]:
         "length_mm": length_mm,
         "depth_mm": depth_mm,
         "radius_mm": radius_mm,
+        "center_x_mm": center_x_mm,
+        "center_y_mm": center_y_mm,
+        "center_z_mm": center_z_mm,
+        "axis": axis,
+        "use_top_face": use_top_face,
+        "extrude_midplane": extrude_midplane,
         "angle_deg": angle_deg,
         "draft_angle_deg": draft_angle_deg,
         "draft_outward": draft_outward,
@@ -589,6 +839,9 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
     fillet_target = params.get("fillet_target")
     chamfer_distance_mm = params.get("chamfer_distance_mm")
     chamfer_target = params.get("chamfer_target")
+    center_x_mm = params.get("center_x_mm")
+    center_y_mm = params.get("center_y_mm")
+    center_z_mm = params.get("center_z_mm")
     count = params.get("count")
     pattern = params.get("pattern") or {}
 
@@ -749,6 +1002,16 @@ def generate_plan_from_parsed(parsed_result: dict) -> List[str]:
             draft_desc += " inward"
         plan.append(draft_desc)
 
+    if center_x_mm is not None or center_y_mm is not None or center_z_mm is not None:
+        coord_parts = []
+        if center_x_mm is not None:
+            coord_parts.append(f"X={center_x_mm} mm")
+        if center_y_mm is not None:
+            coord_parts.append(f"Y={center_y_mm} mm")
+        if center_z_mm is not None:
+            coord_parts.append(f"Z={center_z_mm} mm")
+        plan.append(f"Place center at {', '.join(coord_parts)}")
+
     return plan
 
 
@@ -900,6 +1163,16 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
 
     value_unit = r"(?P<value>[0-9]*\.?[0-9]+)\s*(?P<unit>mm|millimeter|millimeters|cm|centimeter|centimeters|m|meter|meters|in|inch|inches)?"
 
+    def extract_axis(axis_label: str) -> Optional[float]:
+        axis_pattern = rf"(?:center\s*)?{axis_label}\s*[:=]\s*{value_unit}"
+        match = re.search(axis_pattern, instruction_lower)
+        if match:
+            try:
+                return _to_mm(float(match.group("value")), match.group("unit"))
+            except ValueError:
+                return None
+        return None
+
     def extract_dim(keywords):
         if not keywords:
             return None
@@ -989,6 +1262,9 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
     length_mm = extract_dim(["length", "long"])
     diameter_mm = extract_dim(["diameter", "dia", "phi"])
     radius_mm = extract_dim(["radius", "rad"])
+    center_x_mm = extract_axis("x")
+    center_y_mm = extract_axis("y")
+    center_z_mm = extract_axis("z")
     size_mm = extract_dim(["size", "side", "edge"])
     angle_deg = extract_angle()
     draft_angle_deg = extract_named_angle(["draft", "taper"])
@@ -1131,6 +1407,9 @@ def parse_cad_instruction(instruction: str) -> ParsedParameters:
         fillet_target=fillet_target,
         chamfer_distance_mm=chamfer_distance_mm,
         chamfer_target=chamfer_target,
+        center_x_mm=center_x_mm,
+        center_y_mm=center_y_mm,
+        center_z_mm=center_z_mm,
         count=count,
         pattern=pattern_info,
     )
@@ -1352,6 +1631,137 @@ async def dry_run_instruction(request: InstructionRequest) -> InstructionRespons
             status_code=500,
             detail=f"Internal error during dry run: {str(e)}"
         )
+
+
+@app.post("/plan")
+async def plan_instruction(request: PlannerRequest, db: Session = Depends(get_db)) -> PlannerResponse:
+    """
+    Planner endpoint for high-level requests with question/answer loop.
+
+    Returns a plan, questions (if missing info), and a persistent state_id
+    that can be used to resume planning.
+    """
+    logger.info("Planner request received")
+
+    if request.state_id:
+        state = db.query(DesignState).filter(DesignState.state_id == request.state_id).first()
+        if not state:
+            raise HTTPException(status_code=404, detail="Planner state not found.")
+
+        instruction = state.instruction
+        plan = _json_load(state.plan_json, [])
+        questions = _json_load(state.questions_json, [])
+        answers = _json_load(state.answers_json, {})
+        answers = _merge_answers(answers, request.answers)
+
+        required_keys = [q.get("id") for q in questions if q.get("id")]
+        missing_keys = [key for key in required_keys if key not in answers]
+
+        operations: List[Dict[str, Any]] = []
+        notes: List[str] = []
+        if missing_keys:
+            status = "awaiting_answers"
+        else:
+            status = "ready"
+            if _is_high_level_planner_request(instruction):
+                operations, notes = _build_bike_operations(answers)
+            else:
+                operations, plan = _build_operations_from_instruction(instruction, request.use_ai)
+
+        state.answers_json = _json_dump(answers)
+        state.status = status
+        db.commit()
+
+        return PlannerResponse(
+            schema_version=SCHEMA_VERSION,
+            instruction=instruction,
+            state_id=state.state_id,
+            status=status,
+            plan=plan,
+            questions=[PlannerQuestion(**q) for q in questions],
+            answers=answers,
+            operations=operations,
+            notes=notes,
+        )
+
+    instruction = request.instruction or ""
+    if _is_high_level_planner_request(instruction):
+        plan, questions, required_keys = _build_bike_plan()
+        answers = _merge_answers({}, request.answers)
+        missing_keys = [key for key in required_keys if key not in answers]
+
+        operations: List[Dict[str, Any]] = []
+        notes: List[str] = []
+        if missing_keys:
+            status = "awaiting_answers"
+        else:
+            status = "ready"
+            operations, notes = _build_bike_operations(answers)
+    else:
+        operations, plan = _build_operations_from_instruction(instruction, request.use_ai)
+        questions = []
+        answers = {}
+        notes = []
+        status = "ready"
+
+    state_id = uuid.uuid4().hex
+    state = DesignState(
+        state_id=state_id,
+        instruction=instruction,
+        plan_json=_json_dump(plan),
+        questions_json=_json_dump(questions),
+        answers_json=_json_dump(answers),
+        status=status,
+    )
+    db.add(state)
+    db.commit()
+
+    return PlannerResponse(
+        schema_version=SCHEMA_VERSION,
+        instruction=instruction,
+        state_id=state_id,
+        status=status,
+        plan=plan,
+        questions=[PlannerQuestion(**q) for q in questions],
+        answers=answers,
+        operations=operations,
+        notes=notes,
+    )
+
+
+@app.get("/plan/{state_id}")
+async def get_plan_state(state_id: str, db: Session = Depends(get_db)) -> PlannerResponse:
+    """
+    Retrieve an existing planner state by ID.
+    """
+    state = db.query(DesignState).filter(DesignState.state_id == state_id).first()
+    if not state:
+        raise HTTPException(status_code=404, detail="Planner state not found.")
+
+    instruction = state.instruction
+    plan = _json_load(state.plan_json, [])
+    questions = _json_load(state.questions_json, [])
+    answers = _json_load(state.answers_json, {})
+    operations: List[Dict[str, Any]] = []
+    notes: List[str] = []
+
+    if state.status == "ready":
+        if _is_high_level_planner_request(instruction):
+            operations, notes = _build_bike_operations(answers)
+        else:
+            operations, plan = _build_operations_from_instruction(instruction, use_ai=False)
+
+    return PlannerResponse(
+        schema_version=SCHEMA_VERSION,
+        instruction=instruction,
+        state_id=state.state_id,
+        status=state.status,
+        plan=plan,
+        questions=[PlannerQuestion(**q) for q in questions],
+        answers=answers,
+        operations=operations,
+        notes=notes,
+    )
 
 
 @app.post("/replay")

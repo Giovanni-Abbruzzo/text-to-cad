@@ -51,3 +51,48 @@ def test_empty_instruction_422():
     payload = response.json()
     detail = payload.get("detail", [])
     assert any(item.get("msg") == "Instruction cannot be empty." for item in detail)
+
+
+def test_plan_returns_questions_for_bike():
+    response = client.post(
+        "/plan",
+        json={"instruction": "make a mountain bike", "use_ai": False},
+    )
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload.get("schema_version") == "1.0"
+    assert payload.get("state_id")
+    assert payload.get("status") == "awaiting_answers"
+    assert isinstance(payload.get("plan"), list)
+    assert payload["plan"]
+    assert isinstance(payload.get("questions"), list)
+    assert payload["questions"]
+
+
+def test_plan_resume_returns_operations():
+    initial = client.post(
+        "/plan",
+        json={"instruction": "make a mountain bike", "use_ai": False},
+    )
+    assert initial.status_code == 200
+    state_id = initial.json().get("state_id")
+    assert state_id
+
+    response = client.post(
+        "/plan",
+        json={
+            "state_id": state_id,
+            "answers": {
+                "frame_size_mm": 450,
+                "wheel_diameter_mm": 650,
+                "tire_width_mm": 55,
+                "handlebar_width_mm": 720,
+            },
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload.get("status") == "ready"
+    assert isinstance(payload.get("operations"), list)
+    assert payload["operations"]
