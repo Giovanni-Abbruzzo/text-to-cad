@@ -1,8 +1,14 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Speech.Recognition;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using TextToCad.SolidWorksAddin.Models;
 using TextToCad.SolidWorksAddin.Utils;
@@ -28,6 +34,15 @@ namespace TextToCad.SolidWorksAddin
         private readonly Dictionary<int, string> _stepFeatureNames = new Dictionary<int, string>();
         private string _plannerStateId;
         private PlannerResponse _plannerResponse;
+        private SpeechRecognitionEngine _speechRecognizer;
+        private bool _isVoiceRecording;
+        private string _lastVoiceTranscript;
+        private bool _isInitializingVoice;
+        private string _whisperExePath;
+        private string _whisperModelPath;
+        private string _whisperLanguage;
+        private string _voiceRecordingPath;
+        private const string VoiceRecordingAlias = "TextToCadVoice";
 
         #endregion
 
@@ -79,6 +94,8 @@ namespace TextToCad.SolidWorksAddin
             {
                 lblPlannerState.Text = "Planner: idle";
             }
+
+            InitializeVoice();
         }
 
         #endregion
@@ -249,82 +266,7 @@ namespace TextToCad.SolidWorksAddin
         /// </summary>
         private async void btnExecute_Click(object sender, EventArgs e)
         {
-            // Validate instruction
-            if (!ErrorHandler.ValidateInstruction(txtInstruction.Text, out string errorMessage))
-            {
-                AppendLog("Validation error", Color.Red);
-                AppendLog(errorMessage, Color.Red);
-                return;
-            }
-
-            if (isProcessing)
-            {
-                AppendLog("Already processing a request...", Color.Orange);
-                return;
-            }
-
-            // Confirm execution
-            if (!ErrorHandler.Confirm(
-                $"Execute this instruction?\n\n\"{txtInstruction.Text}\"\n\n" +
-                "This will save the command to the database and create CAD geometry.",
-                "Confirm Execution"))
-            {
-                AppendLog("Execution cancelled by user", Color.Orange);
-                return;
-            }
-
-            try
-            {
-                isProcessing = true;
-                SetUIEnabled(false);
-
-                string instructionText = txtInstruction.Text.Trim();
-
-                AppendLog("Executing instruction...", Color.Blue);
-                Logger.Info($"Execute requested: '{instructionText}'");
-
-                if (TryExecuteReplayCommand(instructionText))
-                {
-                    return;
-                }
-
-                // Create request
-                var request = new InstructionRequest(instructionText, chkUseAI.Checked);
-
-                // Call API to get parsed response
-                var response = await ApiClient.ProcessInstructionAsync(request);
-
-                // Display response (shows plan and parameters)
-                DisplayResponse(response, isPreview: false);
-
-                AppendLog("Execution complete (saved to database)", Color.Green);
-
-                // Now execute the CAD operations
-                AppendLog("", Color.Black);
-                AppendLog("Creating CAD geometry...", Color.Blue);
-
-                bool geometryCreated = ExecuteCADOperation(response, chkUseAI.Checked);
-
-                if (geometryCreated)
-                {
-                    AppendLog("CAD geometry created successfully", Color.Green);
-                }
-                else
-                {
-                    AppendLog("Geometry creation skipped or failed (see details above)", Color.Orange);
-                }
-            }
-            catch (Exception ex)
-            {
-                string errorMsg = ErrorHandler.HandleException(ex, "Execute");
-                AppendLog("Execution failed", Color.Red);
-                AppendLog(errorMsg, Color.Red);
-            }
-            finally
-            {
-                isProcessing = false;
-                SetUIEnabled(true);
-            }
+            await ExecuteInstructionAsync(txtInstruction.Text.Trim(), requireConfirm: true, sourceLabel: "Execute");
         }
 
         /// <summary>
@@ -700,6 +642,609 @@ namespace TextToCad.SolidWorksAddin
                 {
                     lblReplayStatus.Text = "Replay idle. Click 'Replay Last Session' to recreate the last session.";
                 }
+            }
+        }
+
+        /// <summary>
+        /// Initialize voice UI defaults.
+        /// </summary>
+        private void InitializeVoice()
+        {
+            _isInitializingVoice = true;
+            _lastVoiceTranscript = string.Empty;
+            if (lblVoiceStatus != null)
+            {
+                lblVoiceStatus.Text = "Voice: idle";
+            }
+
+            if (btnVoiceConfirm != null)
+            {
+                btnVoiceConfirm.Enabled = false;
+            }
+
+            if (btnVoiceCancel != null)
+            {
+                btnVoiceCancel.Enabled = false;
+            }
+
+            _whisperExePath = AddinConfig.Get("WhisperCliPath", string.Empty);
+            _whisperModelPath = AddinConfig.Get("WhisperModelPath", string.Empty);
+            _whisperLanguage = AddinConfig.Get("WhisperLanguage", "en");
+            if (chkUseWhisper != null)
+            {
+                string useWhisperSetting = AddinConfig.Get("UseWhisper", string.Empty);
+                chkUseWhisper.Checked = string.Equals(useWhisperSetting, "true", StringComparison.OrdinalIgnoreCase);
+            }
+
+            _isInitializingVoice = false;
+            UpdateWhisperAvailability();
+        }
+
+        private bool IsWhisperEnabled()
+        {
+            return chkUseWhisper != null && chkUseWhisper.Checked;
+        }
+
+        private bool ValidateWhisperConfig(out string message)
+        {
+            message = string.Empty;
+            if (string.IsNullOrWhiteSpace(_whisperExePath))
+            {
+                message = "Whisper is enabled but WhisperCliPath is not set in app.config.";
+                return false;
+            }
+
+            if (!File.Exists(_whisperExePath))
+            {
+                message = $"Whisper CLI not found at: {_whisperExePath}";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(_whisperModelPath))
+            {
+                message = "Whisper is enabled but WhisperModelPath is not set in app.config.";
+                return false;
+            }
+
+            if (!File.Exists(_whisperModelPath))
+            {
+                message = $"Whisper model not found at: {_whisperModelPath}";
+                return false;
+            }
+
+            return true;
+        }
+
+        private void UpdateWhisperAvailability()
+        {
+            if (chkUseWhisper == null || !chkUseWhisper.Checked)
+            {
+                return;
+            }
+
+            if (!ValidateWhisperConfig(out string message))
+            {
+                if (!_isInitializingVoice)
+                {
+                    AppendLog(message, Color.Orange);
+                }
+                chkUseWhisper.Checked = false;
+                UpdateVoiceStatus("Voice: idle");
+                return;
+            }
+
+            UpdateVoiceStatus("Voice: whisper ready");
+        }
+
+        private bool EnsureSpeechRecognizer()
+        {
+            if (_speechRecognizer != null)
+            {
+                return true;
+            }
+
+            try
+            {
+                try
+                {
+                    _speechRecognizer = new SpeechRecognitionEngine(CultureInfo.CurrentCulture);
+                }
+                catch (Exception)
+                {
+                    _speechRecognizer = new SpeechRecognitionEngine(new CultureInfo("en-US"));
+                }
+
+                _speechRecognizer.SetInputToDefaultAudioDevice();
+                _speechRecognizer.LoadGrammar(new DictationGrammar());
+                _speechRecognizer.SpeechRecognized += OnSpeechRecognized;
+                _speechRecognizer.SpeechRecognitionRejected += OnSpeechRejected;
+                _speechRecognizer.RecognizeCompleted += OnSpeechCompleted;
+
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Voice init failed: {ex.Message}", Color.Red);
+                UpdateVoiceStatus("Voice: unavailable");
+                if (btnVoiceRecord != null)
+                {
+                    btnVoiceRecord.Enabled = false;
+                }
+                return false;
+            }
+        }
+
+        private void StartVoiceCapture()
+        {
+            if (_isVoiceRecording)
+            {
+                return;
+            }
+
+            if (IsWhisperEnabled())
+            {
+                StartWhisperCapture();
+                return;
+            }
+
+            StartSpeechCapture();
+        }
+
+        private void StartSpeechCapture()
+        {
+            if (!EnsureSpeechRecognizer())
+            {
+                return;
+            }
+
+            _lastVoiceTranscript = string.Empty;
+            txtVoiceTranscript.Text = string.Empty;
+            btnVoiceRecord.Text = "Stop";
+            btnVoiceConfirm.Enabled = false;
+            btnVoiceCancel.Enabled = true;
+            UpdateVoiceStatus("Voice: listening...");
+
+            try
+            {
+                _speechRecognizer.RecognizeAsync(RecognizeMode.Multiple);
+                _isVoiceRecording = true;
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"Voice start failed: {ex.Message}", Color.Red);
+                UpdateVoiceStatus("Voice: error");
+                btnVoiceRecord.Text = "Record";
+            }
+        }
+
+        private void StopVoiceCapture(bool transcribe = true)
+        {
+            if (IsWhisperEnabled())
+            {
+                StopWhisperCapture(transcribe);
+                return;
+            }
+
+            StopSpeechCapture();
+        }
+
+        private void StopSpeechCapture()
+        {
+            if (!_isVoiceRecording || _speechRecognizer == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _speechRecognizer.RecognizeAsyncStop();
+            }
+            catch (Exception)
+            {
+                _speechRecognizer.RecognizeAsyncCancel();
+            }
+
+            _isVoiceRecording = false;
+            btnVoiceRecord.Text = "Record";
+            UpdateVoiceStatus("Voice: stopped");
+        }
+
+        [DllImport("winmm.dll")]
+        private static extern int mciSendString(string command, StringBuilder buffer, int bufferSize, IntPtr hwndCallback);
+
+        [DllImport("winmm.dll")]
+        private static extern bool mciGetErrorString(int errorCode, StringBuilder errorText, int errorTextSize);
+
+        private bool TryMciCommand(string command, out string error)
+        {
+            error = string.Empty;
+            int result = mciSendString(command, null, 0, IntPtr.Zero);
+            if (result == 0)
+            {
+                return true;
+            }
+
+            var errorText = new StringBuilder(256);
+            if (mciGetErrorString(result, errorText, errorText.Capacity))
+            {
+                error = errorText.ToString();
+            }
+            else
+            {
+                error = $"MCI error {result} for command: {command}";
+            }
+
+            return false;
+        }
+
+        private void StartWhisperCapture()
+        {
+            if (!ValidateWhisperConfig(out string message))
+            {
+                AppendLog(message, Color.Orange);
+                UpdateVoiceStatus("Voice: whisper not configured");
+                return;
+            }
+
+            _lastVoiceTranscript = string.Empty;
+            txtVoiceTranscript.Text = string.Empty;
+            _voiceRecordingPath = Path.Combine(Path.GetTempPath(), $"texttocad_voice_{DateTime.Now:yyyyMMdd_HHmmss}.wav");
+
+            if (!TryMciCommand($"open new Type waveaudio Alias {VoiceRecordingAlias}", out string error))
+            {
+                AppendLog($"Voice record start failed: {error}", Color.Red);
+                UpdateVoiceStatus("Voice: error");
+                return;
+            }
+
+            if (!TryMciCommand($"record {VoiceRecordingAlias}", out error))
+            {
+                AppendLog($"Voice record start failed: {error}", Color.Red);
+                UpdateVoiceStatus("Voice: error");
+                TryMciCommand($"close {VoiceRecordingAlias}", out _);
+                return;
+            }
+
+            _isVoiceRecording = true;
+            btnVoiceRecord.Text = "Stop";
+            btnVoiceConfirm.Enabled = false;
+            btnVoiceCancel.Enabled = true;
+            UpdateVoiceStatus("Voice: recording (whisper)...");
+        }
+
+        private void StopWhisperCapture(bool transcribe)
+        {
+            if (!_isVoiceRecording)
+            {
+                return;
+            }
+
+            if (!TryMciCommand($"save {VoiceRecordingAlias} \"{_voiceRecordingPath}\"", out string error))
+            {
+                AppendLog($"Voice record save failed: {error}", Color.Red);
+            }
+
+            TryMciCommand($"close {VoiceRecordingAlias}", out _);
+
+            _isVoiceRecording = false;
+            btnVoiceRecord.Text = "Record";
+
+            if (!transcribe)
+            {
+                UpdateVoiceStatus("Voice: stopped");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(_voiceRecordingPath) || !File.Exists(_voiceRecordingPath))
+            {
+                AppendLog("Voice recording not found for transcription.", Color.Red);
+                UpdateVoiceStatus("Voice: error");
+                return;
+            }
+
+            btnVoiceRecord.Enabled = false;
+            UpdateVoiceStatus("Voice: transcribing...");
+            _ = TranscribeWhisperAsync(_voiceRecordingPath);
+        }
+
+        private async Task TranscribeWhisperAsync(string wavPath)
+        {
+            string transcript = string.Empty;
+            string errorMessage = string.Empty;
+
+            try
+            {
+                transcript = await Task.Run(() => RunWhisperCli(wavPath, out errorMessage));
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+            }
+
+            if (string.IsNullOrWhiteSpace(transcript))
+            {
+                AppendLog($"Whisper transcription failed: {errorMessage}", Color.Red);
+                UpdateVoiceStatus("Voice: error");
+                btnVoiceRecord.Enabled = true;
+                return;
+            }
+
+            _lastVoiceTranscript = transcript.Trim();
+            SetVoiceTranscript(_lastVoiceTranscript);
+            UpdateVoiceStatus("Voice: captured (whisper)");
+
+            if (btnVoiceConfirm.InvokeRequired)
+            {
+                btnVoiceConfirm.BeginInvoke(new Action(() => btnVoiceConfirm.Enabled = true));
+            }
+            else
+            {
+                btnVoiceConfirm.Enabled = true;
+            }
+
+            btnVoiceRecord.Enabled = true;
+        }
+
+        private string RunWhisperCli(string wavPath, out string error)
+        {
+            error = string.Empty;
+
+            if (!ValidateWhisperConfig(out error))
+            {
+                return string.Empty;
+            }
+
+            string outputBase = Path.Combine(Path.GetTempPath(), $"texttocad_whisper_{Guid.NewGuid()}");
+            string outputTxt = outputBase + ".txt";
+            string args = $"-m \"{_whisperModelPath}\" -f \"{wavPath}\" -l {_whisperLanguage} -otxt -of \"{outputBase}\"";
+
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = _whisperExePath,
+                Arguments = args,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            using (var process = Process.Start(startInfo))
+            {
+                if (process == null)
+                {
+                    error = "Failed to start Whisper CLI process.";
+                    return string.Empty;
+                }
+
+                string stdout = process.StandardOutput.ReadToEnd();
+                string stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                if (process.ExitCode != 0 && string.IsNullOrWhiteSpace(error))
+                {
+                    error = string.IsNullOrWhiteSpace(stderr) ? $"Whisper exited with code {process.ExitCode}." : stderr.Trim();
+                }
+
+                if (File.Exists(outputTxt))
+                {
+                    return File.ReadAllText(outputTxt).Trim();
+                }
+
+                if (!string.IsNullOrWhiteSpace(stdout))
+                {
+                    return stdout.Trim();
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                error = "Whisper did not return any transcript.";
+            }
+
+            return string.Empty;
+        }
+
+        private void UpdateVoiceStatus(string status)
+        {
+            if (lblVoiceStatus == null)
+            {
+                return;
+            }
+
+            if (lblVoiceStatus.InvokeRequired)
+            {
+                lblVoiceStatus.BeginInvoke(new Action(() => lblVoiceStatus.Text = status));
+                return;
+            }
+
+            lblVoiceStatus.Text = status;
+        }
+
+        private void SetVoiceTranscript(string transcript)
+        {
+            if (txtVoiceTranscript == null)
+            {
+                return;
+            }
+
+            if (txtVoiceTranscript.InvokeRequired)
+            {
+                txtVoiceTranscript.BeginInvoke(new Action(() => txtVoiceTranscript.Text = transcript));
+                return;
+            }
+
+            txtVoiceTranscript.Text = transcript;
+        }
+
+        private void OnSpeechRecognized(object sender, SpeechRecognizedEventArgs e)
+        {
+            if (e.Result == null || string.IsNullOrWhiteSpace(e.Result.Text))
+            {
+                return;
+            }
+
+            _lastVoiceTranscript = e.Result.Text.Trim();
+            SetVoiceTranscript(_lastVoiceTranscript);
+            UpdateVoiceStatus($"Voice: captured ({Math.Round(e.Result.Confidence * 100)}% confidence)");
+
+            if (btnVoiceConfirm.InvokeRequired)
+            {
+                btnVoiceConfirm.BeginInvoke(new Action(() => btnVoiceConfirm.Enabled = true));
+            }
+            else
+            {
+            btnVoiceConfirm.Enabled = true;
+            }
+        }
+
+        private void chkUseWhisper_CheckedChanged(object sender, EventArgs e)
+        {
+            if (_isInitializingVoice)
+            {
+                return;
+            }
+
+            UpdateWhisperAvailability();
+        }
+
+        private void OnSpeechRejected(object sender, SpeechRecognitionRejectedEventArgs e)
+        {
+            UpdateVoiceStatus("Voice: no match");
+        }
+
+        private void OnSpeechCompleted(object sender, RecognizeCompletedEventArgs e)
+        {
+            if (_isVoiceRecording)
+            {
+                return;
+            }
+
+            UpdateVoiceStatus("Voice: idle");
+        }
+
+        private void btnVoiceRecord_Click(object sender, EventArgs e)
+        {
+            if (_isVoiceRecording)
+            {
+                StopVoiceCapture();
+            }
+            else
+            {
+                StartVoiceCapture();
+            }
+        }
+
+        private async void btnVoiceConfirm_Click(object sender, EventArgs e)
+        {
+            string transcript = txtVoiceTranscript?.Text?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(transcript))
+            {
+                AppendLog("Voice transcript is empty.", Color.Orange);
+                return;
+            }
+
+            StopVoiceCapture(transcribe: false);
+            _lastVoiceTranscript = transcript;
+            txtInstruction.ForeColor = SystemColors.ControlText;
+            txtInstruction.Text = transcript;
+
+            await ExecuteInstructionAsync(transcript, requireConfirm: false, sourceLabel: "Voice");
+        }
+
+        private void btnVoiceCancel_Click(object sender, EventArgs e)
+        {
+            StopVoiceCapture(transcribe: false);
+            _lastVoiceTranscript = string.Empty;
+            SetVoiceTranscript(string.Empty);
+            btnVoiceConfirm.Enabled = false;
+            btnVoiceCancel.Enabled = false;
+            UpdateVoiceStatus("Voice: idle");
+        }
+
+        private void txtVoiceTranscript_TextChanged(object sender, EventArgs e)
+        {
+            if (txtVoiceTranscript == null)
+            {
+                return;
+            }
+
+            _lastVoiceTranscript = txtVoiceTranscript.Text.Trim();
+            if (btnVoiceConfirm != null)
+            {
+                btnVoiceConfirm.Enabled = !string.IsNullOrWhiteSpace(_lastVoiceTranscript);
+            }
+        }
+
+        private async System.Threading.Tasks.Task ExecuteInstructionAsync(string instructionText, bool requireConfirm, string sourceLabel)
+        {
+            if (!ErrorHandler.ValidateInstruction(instructionText, out string errorMessage))
+            {
+                AppendLog("Validation error", Color.Red);
+                AppendLog(errorMessage, Color.Red);
+                return;
+            }
+
+            if (isProcessing)
+            {
+                AppendLog("Already processing a request...", Color.Orange);
+                return;
+            }
+
+            if (requireConfirm)
+            {
+                if (!ErrorHandler.Confirm(
+                    $"Execute this instruction?\n\n\"{instructionText}\"\n\n" +
+                    "This will save the command to the database and create CAD geometry.",
+                    "Confirm Execution"))
+                {
+                    AppendLog("Execution cancelled by user", Color.Orange);
+                    return;
+                }
+            }
+
+            try
+            {
+                isProcessing = true;
+                SetUIEnabled(false);
+
+                AppendLog($"{sourceLabel ?? "Execute"}: executing instruction...", Color.Blue);
+                Logger.Info($"{sourceLabel ?? "Execute"} requested: '{instructionText}'");
+
+                if (TryExecuteReplayCommand(instructionText))
+                {
+                    return;
+                }
+
+                var request = new InstructionRequest(instructionText, chkUseAI.Checked);
+                var response = await ApiClient.ProcessInstructionAsync(request);
+
+                DisplayResponse(response, isPreview: false);
+                AppendLog("Execution complete (saved to database)", Color.Green);
+
+                AppendLog("", Color.Black);
+                AppendLog("Creating CAD geometry...", Color.Blue);
+
+                bool geometryCreated = ExecuteCADOperation(response, chkUseAI.Checked);
+
+                if (geometryCreated)
+                {
+                    AppendLog("CAD geometry created successfully", Color.Green);
+                }
+                else
+                {
+                    AppendLog("Geometry creation skipped or failed (see details above)", Color.Orange);
+                }
+            }
+            catch (Exception ex)
+            {
+                string errorMsg = ErrorHandler.HandleException(ex, "Execute");
+                AppendLog("Execution failed", Color.Red);
+                AppendLog(errorMsg, Color.Red);
+            }
+            finally
+            {
+                isProcessing = false;
+                SetUIEnabled(true);
             }
         }
 
@@ -2180,6 +2725,13 @@ namespace TextToCad.SolidWorksAddin
             btnRunCheckedSteps.Enabled = enabled;
             btnRunNextStep.Enabled = enabled;
             btnUndoLastStep.Enabled = enabled;
+            btnVoiceRecord.Enabled = enabled;
+            btnVoiceConfirm.Enabled = enabled && !string.IsNullOrWhiteSpace(_lastVoiceTranscript);
+            btnVoiceCancel.Enabled = enabled;
+            if (chkUseWhisper != null)
+            {
+                chkUseWhisper.Enabled = enabled;
+            }
             if (lstSteps != null)
             {
                 lstSteps.Enabled = enabled;
@@ -2196,6 +2748,7 @@ namespace TextToCad.SolidWorksAddin
             {
                 lblStatus.Text = "Processing...";
                 lblStatus.ForeColor = Color.Orange;
+                StopVoiceCapture(transcribe: false);
             }
         }
 
