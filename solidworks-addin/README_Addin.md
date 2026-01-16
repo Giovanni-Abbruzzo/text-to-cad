@@ -17,17 +17,21 @@ Natural language to CAD automation add-in for SolidWorks. Convert text instructi
 Before you begin, ensure you have:
 
 ### Required Software
-- ‚úÖ **Visual Studio 2019 or later** (Community Edition is fine)
+- ‚ú
+ **Visual Studio 2019 or later** (Community Edition is fine)
   - Download: https://visualstudio.microsoft.com/downloads/
   - Required workload: ".NET desktop development"
   
-- ‚úÖ **.NET Framework 4.7.2 Developer Pack**
+- ‚ú
+ **.NET Framework 4.7.2 Developer Pack**
   - Download: https://dotnet.microsoft.com/download/dotnet-framework/net472
   
-- ‚úÖ **SolidWorks 2020 or later** (2024 recommended)
+- ‚ú
+ **SolidWorks 2020 or later** (2024 recommended)
   - Student, Professional, or Premium edition
   
-- ‚úÖ **SolidWorks API SDK** (included with SolidWorks installation)
+- ‚ú
+ **SolidWorks API SDK** (included with SolidWorks installation)
   - Located at: `C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\`
 
 ### Required Permissions
@@ -35,7 +39,8 @@ Before you begin, ensure you have:
 - ‚ö†Ô∏è **Write access** to `%APPDATA%\TextToCad\` for logging
 
 ### Backend Requirements
-- ‚úÖ **FastAPI backend running** on `http://localhost:8000`
+- ‚ú
+ **FastAPI backend running** on `http://localhost:8000`
   - See main project README for backend setup
   - Must have `/dry_run` and `/process_instruction` endpoints
 
@@ -196,6 +201,23 @@ Verify backend is running at: http://localhost:8000/docs
 - Confirm the action
 - Command is saved to database
 - (Future: Will execute CAD operations in SolidWorks)
+
+
+#### 3. Voice Input (optional)
+- In the **Voice Input** panel, click **Record**
+- Speak a command (e.g., "create a 20mm diameter cylinder 30mm tall")
+- Review the transcript in the voice box
+- Click **Confirm** to execute or **Clear** to discard
+- Voice commands are not executed until you confirm
+
+##### Whisper (local, optional)
+- Download whisper.cpp CLI (whisper-cli.exe) and a GGML model (e.g., ggml-base.en.bin)
+- Set these keys in app.config:
+  UseWhisper=true
+  WhisperCliPath=C:\\path\\to\\whisper-cli.exe
+  WhisperModelPath=C:\\path\\to\\ggml-base.en.bin
+  WhisperLanguage=en
+- Restart SolidWorks and check "Use Whisper" in Voice Input
 
 ### Example Instructions
 
@@ -814,9 +836,12 @@ if (hole == null)
 ### Version Compatibility
 
 These utilities are tested with:
-- ‚úÖ SolidWorks 2020-2024
-- ‚úÖ .NET Framework 4.7.2
-- ‚úÖ Windows 10/11 64-bit
+- ‚ú
+ SolidWorks 2020-2024
+- ‚ú
+ .NET Framework 4.7.2
+- ‚ú
+ Windows 10/11 64-bit
 
 For older SolidWorks versions:
 - Some API methods may have different signatures

@@ -1,10 +1,10 @@
 using System;
-using System.Configuration;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using TextToCad.SolidWorksAddin.Models;
+using TextToCad.SolidWorksAddin.Utils;
 
 namespace TextToCad.SolidWorksAddin
 {
@@ -21,14 +21,14 @@ namespace TextToCad.SolidWorksAddin
         static ApiClient()
         {
             // Initialize HTTP client with timeout
-            timeoutSeconds = int.Parse(ConfigurationManager.AppSettings["ApiTimeoutSeconds"] ?? "30");
+            timeoutSeconds = int.Parse(AddinConfig.Get("ApiTimeoutSeconds", "30"));
             httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromSeconds(timeoutSeconds)
             };
 
             // Set base URL from config (can be overridden via UI)
-            baseUrl = NormalizeBaseUrl(ConfigurationManager.AppSettings["ApiBaseUrl"] ?? "http://localhost:8000");
+            baseUrl = NormalizeBaseUrl(AddinConfig.Get("ApiBaseUrl", "http://localhost:8000"));
 
             Logger.Info($"ApiClient initialized with base URL: {baseUrl}, timeout: {timeoutSeconds}s");
         }

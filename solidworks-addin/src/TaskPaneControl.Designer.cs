@@ -17,6 +17,10 @@ namespace TextToCad.SolidWorksAddin
             {
                 components.Dispose();
             }
+            if (disposing)
+            {
+                _speechRecognizer?.Dispose();
+            }
             base.Dispose(disposing);
         }
 
@@ -43,6 +47,13 @@ namespace TextToCad.SolidWorksAddin
             this.txtPlannerQuestions = new System.Windows.Forms.TextBox();
             this.txtPlannerAnswers = new System.Windows.Forms.TextBox();
             this.btnPlannerSubmit = new System.Windows.Forms.Button();
+            this.grpVoice = new System.Windows.Forms.GroupBox();
+            this.chkUseWhisper = new System.Windows.Forms.CheckBox();
+            this.lblVoiceStatus = new System.Windows.Forms.Label();
+            this.txtVoiceTranscript = new System.Windows.Forms.TextBox();
+            this.btnVoiceRecord = new System.Windows.Forms.Button();
+            this.btnVoiceConfirm = new System.Windows.Forms.Button();
+            this.btnVoiceCancel = new System.Windows.Forms.Button();
             this.grpSteps = new System.Windows.Forms.GroupBox();
             this.lstSteps = new System.Windows.Forms.CheckedListBox();
             this.btnRunSelectedStep = new System.Windows.Forms.Button();
@@ -74,6 +85,7 @@ namespace TextToCad.SolidWorksAddin
             this.lblStatus = new System.Windows.Forms.Label();
             this.grpPlan.SuspendLayout();
             this.grpPlanner.SuspendLayout();
+            this.grpVoice.SuspendLayout();
             this.grpSteps.SuspendLayout();
             this.grpLog.SuspendLayout();
             this.grpSettings.SuspendLayout();
@@ -258,6 +270,88 @@ namespace TextToCad.SolidWorksAddin
             this.btnPlannerSubmit.UseVisualStyleBackColor = true;
             this.btnPlannerSubmit.Click += new System.EventHandler(this.btnPlannerSubmit_Click);
             // 
+            // grpVoice
+            // 
+            this.grpVoice.Controls.Add(this.chkUseWhisper);
+            this.grpVoice.Controls.Add(this.btnVoiceCancel);
+            this.grpVoice.Controls.Add(this.btnVoiceConfirm);
+            this.grpVoice.Controls.Add(this.btnVoiceRecord);
+            this.grpVoice.Controls.Add(this.txtVoiceTranscript);
+            this.grpVoice.Controls.Add(this.lblVoiceStatus);
+            this.grpVoice.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
+            this.grpVoice.Location = new System.Drawing.Point(10, 515);
+            this.grpVoice.Name = "grpVoice";
+            this.grpVoice.Size = new System.Drawing.Size(330, 110);
+            this.grpVoice.TabIndex = 9;
+            this.grpVoice.TabStop = false;
+            this.grpVoice.Text = "Voice Input";
+            // 
+            // chkUseWhisper
+            // 
+            this.chkUseWhisper.AutoSize = true;
+            this.chkUseWhisper.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.chkUseWhisper.Location = new System.Drawing.Point(200, 18);
+            this.chkUseWhisper.Name = "chkUseWhisper";
+            this.chkUseWhisper.Size = new System.Drawing.Size(85, 17);
+            this.chkUseWhisper.TabIndex = 5;
+            this.chkUseWhisper.Text = "Use Whisper";
+            this.chkUseWhisper.UseVisualStyleBackColor = true;
+            this.chkUseWhisper.CheckedChanged += new System.EventHandler(this.chkUseWhisper_CheckedChanged);
+            // 
+            // lblVoiceStatus
+            // 
+            this.lblVoiceStatus.AutoSize = true;
+            this.lblVoiceStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.lblVoiceStatus.Location = new System.Drawing.Point(6, 20);
+            this.lblVoiceStatus.Name = "lblVoiceStatus";
+            this.lblVoiceStatus.Size = new System.Drawing.Size(62, 13);
+            this.lblVoiceStatus.TabIndex = 0;
+            this.lblVoiceStatus.Text = "Voice: idle";
+            // 
+            // txtVoiceTranscript
+            // 
+            this.txtVoiceTranscript.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.txtVoiceTranscript.Location = new System.Drawing.Point(6, 70);
+            this.txtVoiceTranscript.Multiline = true;
+            this.txtVoiceTranscript.Name = "txtVoiceTranscript";
+            this.txtVoiceTranscript.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
+            this.txtVoiceTranscript.Size = new System.Drawing.Size(318, 35);
+            this.txtVoiceTranscript.TabIndex = 4;
+            this.txtVoiceTranscript.TextChanged += new System.EventHandler(this.txtVoiceTranscript_TextChanged);
+            // 
+            // btnVoiceRecord
+            // 
+            this.btnVoiceRecord.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnVoiceRecord.Location = new System.Drawing.Point(6, 40);
+            this.btnVoiceRecord.Name = "btnVoiceRecord";
+            this.btnVoiceRecord.Size = new System.Drawing.Size(100, 25);
+            this.btnVoiceRecord.TabIndex = 1;
+            this.btnVoiceRecord.Text = "Record";
+            this.btnVoiceRecord.UseVisualStyleBackColor = true;
+            this.btnVoiceRecord.Click += new System.EventHandler(this.btnVoiceRecord_Click);
+            // 
+            // btnVoiceConfirm
+            // 
+            this.btnVoiceConfirm.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnVoiceConfirm.Location = new System.Drawing.Point(112, 40);
+            this.btnVoiceConfirm.Name = "btnVoiceConfirm";
+            this.btnVoiceConfirm.Size = new System.Drawing.Size(100, 25);
+            this.btnVoiceConfirm.TabIndex = 2;
+            this.btnVoiceConfirm.Text = "Confirm";
+            this.btnVoiceConfirm.UseVisualStyleBackColor = true;
+            this.btnVoiceConfirm.Click += new System.EventHandler(this.btnVoiceConfirm_Click);
+            // 
+            // btnVoiceCancel
+            // 
+            this.btnVoiceCancel.Font = new System.Drawing.Font("Segoe UI", 8F);
+            this.btnVoiceCancel.Location = new System.Drawing.Point(218, 40);
+            this.btnVoiceCancel.Name = "btnVoiceCancel";
+            this.btnVoiceCancel.Size = new System.Drawing.Size(100, 25);
+            this.btnVoiceCancel.TabIndex = 3;
+            this.btnVoiceCancel.Text = "Clear";
+            this.btnVoiceCancel.UseVisualStyleBackColor = true;
+            this.btnVoiceCancel.Click += new System.EventHandler(this.btnVoiceCancel_Click);
+            // 
             // grpSteps
             // 
             this.grpSteps.Controls.Add(this.lstSteps);
@@ -266,10 +360,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpSteps.Controls.Add(this.btnRunNextStep);
             this.grpSteps.Controls.Add(this.btnUndoLastStep);
             this.grpSteps.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSteps.Location = new System.Drawing.Point(10, 515);
+            this.grpSteps.Location = new System.Drawing.Point(10, 635);
             this.grpSteps.Name = "grpSteps";
             this.grpSteps.Size = new System.Drawing.Size(330, 140);
-            this.grpSteps.TabIndex = 9;
+            this.grpSteps.TabIndex = 10;
             this.grpSteps.TabStop = false;
             this.grpSteps.Text = "Steps";
             // 
@@ -332,10 +426,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpLog.Controls.Add(this.txtLog);
             this.grpLog.Controls.Add(this.btnClearLog);
             this.grpLog.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpLog.Location = new System.Drawing.Point(10, 665);
+            this.grpLog.Location = new System.Drawing.Point(10, 785);
             this.grpLog.Name = "grpLog";
             this.grpLog.Size = new System.Drawing.Size(330, 200);
-            this.grpLog.TabIndex = 10;
+            this.grpLog.TabIndex = 11;
             this.grpLog.TabStop = false;
             this.grpLog.Text = "Log";
             // 
@@ -378,10 +472,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpSettings.Controls.Add(this.lblApiBase);
             this.grpSettings.Controls.Add(this.txtApiBase);
             this.grpSettings.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpSettings.Location = new System.Drawing.Point(10, 875);
+            this.grpSettings.Location = new System.Drawing.Point(10, 995);
             this.grpSettings.Name = "grpSettings";
             this.grpSettings.Size = new System.Drawing.Size(330, 250);
-            this.grpSettings.TabIndex = 11;
+            this.grpSettings.TabIndex = 12;
             this.grpSettings.TabStop = false;
             this.grpSettings.Text = "Settings";
             // 
@@ -392,10 +486,10 @@ namespace TextToCad.SolidWorksAddin
             this.grpTestUtils.Controls.Add(this.btnTestFaces);
             this.grpTestUtils.Controls.Add(this.btnTestUndo);
             this.grpTestUtils.Font = new System.Drawing.Font("Segoe UI", 9F, System.Drawing.FontStyle.Bold);
-            this.grpTestUtils.Location = new System.Drawing.Point(10, 1130);
+            this.grpTestUtils.Location = new System.Drawing.Point(10, 1250);
             this.grpTestUtils.Name = "grpTestUtils";
             this.grpTestUtils.Size = new System.Drawing.Size(330, 100);
-            this.grpTestUtils.TabIndex = 13;
+            this.grpTestUtils.TabIndex = 14;
             this.grpTestUtils.TabStop = false;
             this.grpTestUtils.Text = "Test Utilities (SW-2)";
             // 
@@ -583,11 +677,11 @@ namespace TextToCad.SolidWorksAddin
             // 
             this.lblStatus.Dock = System.Windows.Forms.DockStyle.Bottom;
             this.lblStatus.Font = new System.Drawing.Font("Segoe UI", 8F);
-            this.lblStatus.Location = new System.Drawing.Point(0, 1230);
+            this.lblStatus.Location = new System.Drawing.Point(0, 1350);
             this.lblStatus.Name = "lblStatus";
             this.lblStatus.Padding = new System.Windows.Forms.Padding(10, 5, 10, 5);
             this.lblStatus.Size = new System.Drawing.Size(350, 25);
-            this.lblStatus.TabIndex = 12;
+            this.lblStatus.TabIndex = 13;
             this.lblStatus.Text = "Ready";
             this.lblStatus.TextAlign = System.Drawing.ContentAlignment.MiddleLeft;
             // 
@@ -602,6 +696,7 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.grpSettings);
             this.Controls.Add(this.grpLog);
             this.Controls.Add(this.grpSteps);
+            this.Controls.Add(this.grpVoice);
             this.Controls.Add(this.grpPlanner);
             this.Controls.Add(this.grpPlan);
             this.Controls.Add(this.btnPlan);
@@ -614,11 +709,13 @@ namespace TextToCad.SolidWorksAddin
             this.Controls.Add(this.lblTitle);
             this.Font = new System.Drawing.Font("Segoe UI", 9F);
             this.Name = "TaskPaneControl";
-            this.Size = new System.Drawing.Size(350, 1255);
+            this.Size = new System.Drawing.Size(350, 1375);
             this.grpPlan.ResumeLayout(false);
             this.grpPlan.PerformLayout();
             this.grpPlanner.ResumeLayout(false);
             this.grpPlanner.PerformLayout();
+            this.grpVoice.ResumeLayout(false);
+            this.grpVoice.PerformLayout();
             this.grpSteps.ResumeLayout(false);
             this.grpSteps.PerformLayout();
             this.grpLog.ResumeLayout(false);
@@ -647,6 +744,13 @@ namespace TextToCad.SolidWorksAddin
         private System.Windows.Forms.TextBox txtPlannerQuestions;
         private System.Windows.Forms.TextBox txtPlannerAnswers;
         private System.Windows.Forms.Button btnPlannerSubmit;
+        private System.Windows.Forms.GroupBox grpVoice;
+        private System.Windows.Forms.CheckBox chkUseWhisper;
+        private System.Windows.Forms.Label lblVoiceStatus;
+        private System.Windows.Forms.TextBox txtVoiceTranscript;
+        private System.Windows.Forms.Button btnVoiceRecord;
+        private System.Windows.Forms.Button btnVoiceConfirm;
+        private System.Windows.Forms.Button btnVoiceCancel;
         private System.Windows.Forms.GroupBox grpSteps;
         private System.Windows.Forms.CheckedListBox lstSteps;
         private System.Windows.Forms.Button btnRunSelectedStep;
